@@ -13,21 +13,18 @@
 using namespace std;
 
 template <class... Args>
-struct variant_cast_proxy
-{
+struct variant_cast_proxy {
     std::variant<Args...> v;
 
     template <class... ToArgs>
-    operator std::variant<ToArgs...>() const
-    {
+    operator std::variant<ToArgs...>() const {
         return std::visit([](auto&& arg) -> std::variant<ToArgs...> { return arg ; },
                           v);
     }
 };
 
 template <class... Args>
-auto variant_cast(const std::variant<Args...>& v) -> variant_cast_proxy<Args...>
-{
+auto variant_cast(const std::variant<Args...>& v) -> variant_cast_proxy<Args...> {
     return {v};
 }
 
@@ -115,7 +112,7 @@ bool FormulaError::operator==(FormulaError rhs) const {
 }
 
 std::string_view FormulaError::ToString() const {
-    switch (category_){
+    switch (category_) {
     case FormulaError::Category::Ref :
         return "Ref";
     case FormulaError::Category::Value :
@@ -130,8 +127,8 @@ ostream& operator<<(ostream& output, FormulaError fe) {
     return output;
 }
 
-class Cell: public ICell{
-public:
+class Cell: public ICell {
+  public:
     virtual ~Cell() = default;
     Cell(const ISheet& sheet) : sheet_(sheet) {}
     void setNewValue(string text) {
@@ -141,6 +138,9 @@ public:
         } else if (!text.empty() && text.at(0) == '=') {
             formula_ = ParseFormula(text.substr(1));
             text_ = "="+formula_->GetExpression();
+            value_ = variant_cast(formula_->Evaluate(sheet_));
+        } else if (text.find_first_not_of("0123456789") == string::npos) {
+            formula_ = ParseFormula(text);
             value_ = variant_cast(formula_->Evaluate(sheet_));
         } else {
             value_ = text;
@@ -155,7 +155,7 @@ public:
     virtual vector<Position> GetReferencedCells() const override {
         return formula_->GetReferencedCells();
     }
-private:
+  private:
     string text_;
     Value value_;
     std::unique_ptr<IFormula> formula_;
@@ -163,9 +163,9 @@ private:
 };
 
 class Sheet: public ISheet {
-public:
+  public:
     virtual ~Sheet() = default;
-    Sheet() : current_size_({0,0}) {
+    Sheet() : current_size_({0, 0}) {
         sheet_.resize(Position::kMaxRows);
         for (auto&& row : sheet_) {
             row.resize(Position::kMaxCols);
@@ -201,7 +201,7 @@ public:
     }
     virtual void PrintValues(ostream& output) const override {}
     virtual void PrintTexts(ostream& output) const override {}
-private:
+  private:
     bool checkPosition(Position pos) const {
         if (!pos.IsValid())
             throw InvalidPositionException("");

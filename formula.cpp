@@ -12,6 +12,19 @@ using namespace std;
 
 class MyListener : public FormulaListener {
   public:
+    /*class CacheSingletone {
+      public:
+        map<string, IFormula::Value> cache_of_cell_values_;
+        CacheSingletone() = default;
+        static CacheSingletone& getInstance() {
+            if (instance_ == nullptr)
+                instance_ = make_unique<CacheSingletone>();
+        }
+      private:
+        static unique_ptr<CacheSingletone> instance_;
+    };*/
+    MyListener(const ISheet& sheet) : sheet_(sheet) {}
+
     virtual void enterMain(FormulaParser::MainContext *ctx) override {};
     virtual void exitMain(FormulaParser::MainContext *ctx) override {}
 
@@ -123,9 +136,16 @@ class MyListener : public FormulaListener {
             return recursiveComputations(next(current_root_token));
         case parsedTokenType::number:
             return {double(stoi(current_root_token->data)), next(current_root_token)};
-        case parsedTokenType::cell:
-            cout << "CELL WAS INTERPRETED AS ZERO. TODO" << endl;
-            return {0.0, next(current_root_token)};
+        case parsedTokenType::cell: {
+            Position pos = Position::FromString(current_root_token->data);
+            auto cell = sheet_.GetCell(pos);
+            auto cell_value = cell->GetValue();
+            if (holds_alternative<string>(cell_value))
+                return {FormulaError(FormulaError::Category::Value), next(current_root_token)};
+            if (holds_alternative<FormulaError>(cell_value))
+                return {get<FormulaError>(cell_value), next(current_root_token)};
+            return {get<double>(cell_value), next(current_root_token)};
+        }
         case parsedTokenType::unary_operator:
             if (current_root_token->data == "+")
                 return recursiveComputations(next(current_root_token));
@@ -142,7 +162,7 @@ class MyListener : public FormulaListener {
                 return right_part_result;
             auto left_part_result = recursiveComputations(right_part_result.second);
             if (holds_alternative<FormulaError>(left_part_result.first))
-                return right_part_result;
+                return left_part_result;
             double left_val = get<double>(left_part_result.first);
             double right_val = get<double>(right_part_result.first);
             switch (current_root_token->type) {
@@ -157,10 +177,11 @@ class MyListener : public FormulaListener {
                        pair<IFormula::Value, vector<parsedToken>::const_reverse_iterator> {FormulaError(FormulaError::Category::Div0), left_part_result.second} :
                        pair<IFormula::Value, vector<parsedToken>::const_reverse_iterator> {left_val / right_val, left_part_result.second};
             default:
-                throw runtime_error("shit happened during formula coputing 22222222");
+                throw runtime_error("shit happened during formula computing 22222222");
             }
         }
     }
+    const ISheet& sheet_;
 };
 
 class BailErrorListener : public antlr4::BaseErrorListener {
@@ -174,9 +195,8 @@ class BailErrorListener : public antlr4::BaseErrorListener {
     }
 };
 
-IFormula::Value ParseCell(istream& in) {
+IFormula::Value ParseCell(istream& in, const ISheet& sheet) {
     antlr4::ANTLRInputStream input(in);
-
     FormulaLexer lexer(&input);
     BailErrorListener error_listener;
     lexer.removeErrorListeners();
@@ -190,7 +210,7 @@ IFormula::Value ParseCell(istream& in) {
     parser.removeErrorListeners();
 
     antlr4::tree::ParseTree* tree = parser.main();  // метод соответствует корневому правилу
-    MyListener listener;
+    MyListener listener(sheet);
     antlr4::tree::ParseTreeWalker::DEFAULT.walk(&listener, tree);
 
     return listener.GetResult();
@@ -203,7 +223,7 @@ class Formula: public IFormula {
     Formula(string expression) : expression_(expression) {}
     virtual Value Evaluate(const ISheet& sheet) const override {
         istringstream streamed(expression_);
-        return ParseCell(streamed);
+        return ParseCell(streamed, sheet);
     }
     virtual string GetExpression() const override {
         return expression_;
