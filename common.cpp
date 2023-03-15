@@ -1,4 +1,4 @@
-// This is a personal academic project. Dear PVS-Studio, please check it.
+﻿// This is a personal academic project. Dear PVS-Studio, please check it.
 
 // PVS-Studio Static Code Analyzer for C, C++, C#, and Java: https://pvs-studio.com
 #include "common.h"
@@ -60,7 +60,8 @@ Position Position::FromString(std::string_view str) {
     string_view digits = str.substr(delimeter);
     if (digits.length() > to_string(Position::kMaxRows).length() || digits.length() == to_string(Position::kMaxRows).length() && digits > to_string(Position::kMaxRows))
         return invalid_result;
-    from_chars(digits.cbegin(), digits.cend(), result.row);
+    string temp(digits.cbegin(), digits.cend());
+    from_chars(temp.c_str(), temp.c_str()+temp.length(), result.row);
     result.row -= 1;
     return result;
 }
@@ -135,11 +136,16 @@ class Cell: public ICell {
         text_ = text;
         if (!text.empty() && text.at(0) == '\'') {
             value_ = text.substr(1);
-        } else if (!text.empty() && text.at(0) == '=') {
+        }
+        else if (!text.empty() && text.at(0) == '=') {
             formula_ = ParseFormula(text.substr(1));
-            text_ = "="+formula_->GetExpression();
+            text_ = "=" + formula_->GetExpression();
             value_ = variant_cast(formula_->Evaluate(sheet_));
+        }
+        else if (text_.empty()) {
+            value_ = 0;
         } else if (text.find_first_not_of("0123456789") == string::npos) {
+            // TODO: возможно хранить надо текст и только как текст, а считать в formula 
             formula_ = ParseFormula(text);
             value_ = variant_cast(formula_->Evaluate(sheet_));
         } else {

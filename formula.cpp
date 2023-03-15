@@ -138,7 +138,10 @@ class MyListener : public FormulaListener {
             return {double(stoi(current_root_token->data)), next(current_root_token)};
         case parsedTokenType::cell: {
             Position pos = Position::FromString(current_root_token->data);
-            auto cell = sheet_.GetCell(pos);
+            const ICell* cell = sheet_.GetCell(pos);
+            if (cell == nullptr) {
+                return { 0.0, next(current_root_token) };
+            }
             auto cell_value = cell->GetValue();
             if (holds_alternative<string>(cell_value))
                 return {FormulaError(FormulaError::Category::Value), next(current_root_token)};
@@ -195,7 +198,192 @@ class BailErrorListener : public antlr4::BaseErrorListener {
     }
 };
 
-IFormula::Value ParseCell(istream& in, const ISheet& sheet) {
+class ReformattingListener : public FormulaListener {
+public:
+    /*class CacheSingletone {
+      public:
+        map<string, IFormula::Value> cache_of_cell_values_;
+        CacheSingletone() = default;
+        static CacheSingletone& getInstance() {
+            if (instance_ == nullptr)
+                instance_ = make_unique<CacheSingletone>();
+        }
+      private:
+        static unique_ptr<CacheSingletone> instance_;
+    };*/
+    ReformattingListener() = default;
+
+    virtual void enterMain(FormulaParser::MainContext* ctx) override {};
+    virtual void exitMain(FormulaParser::MainContext* ctx) override {}
+
+    virtual void enterUnaryOp(FormulaParser::UnaryOpContext* ctx) override {}
+    virtual void exitUnaryOp(FormulaParser::UnaryOpContext* ctx) override {
+        stack_of_tokens_.push_back(
+            parsedToken{
+                parsedTokenType::unary_operator,
+                ctx->getToken(FormulaParser::ADD, 0) == nullptr ? ctx->SUB()->getText() : ctx->ADD()->getText()
+            }
+        );
+    }
+
+    virtual void enterParens(FormulaParser::ParensContext* ctx) override {}
+    virtual void exitParens(FormulaParser::ParensContext* ctx) override {
+        stack_of_tokens_.push_back(
+            parsedToken{
+                parsedTokenType::parens,
+                ctx->getText()
+            }
+        );
+    }
+
+    virtual void enterLiteral(FormulaParser::LiteralContext* ctx) override {}
+    virtual void exitLiteral(FormulaParser::LiteralContext* ctx) override {
+        stack_of_tokens_.push_back(
+            parsedToken{
+                parsedTokenType::number,
+                ctx->NUMBER()->getText()
+            }
+        );
+    }
+
+    virtual void enterCell(FormulaParser::CellContext* ctx) override {}
+    virtual void exitCell(FormulaParser::CellContext* ctx) override {
+        stack_of_tokens_.push_back(
+            parsedToken{
+                parsedTokenType::cell,
+                ctx->CELL()->getText()
+            }
+        );
+    }
+
+    virtual void enterBinaryOp(FormulaParser::BinaryOpContext* ctx) override {}
+    virtual void exitBinaryOp(FormulaParser::BinaryOpContext* ctx) override {
+        string data;
+        if (ctx->getToken(FormulaParser::ADD, 0) != nullptr) {
+            stack_of_tokens_.push_back(
+                parsedToken{
+                    parsedTokenType::add,
+                    ctx->ADD()->getText()
+                }
+            );
+        }
+        else if (ctx->getToken(FormulaParser::SUB, 0) != nullptr) {
+            stack_of_tokens_.push_back(
+                parsedToken{
+                    parsedTokenType::sub,
+                    ctx->SUB()->getText()
+                }
+            );
+        }
+        else if (ctx->getToken(FormulaParser::MUL, 0) != nullptr) {
+            stack_of_tokens_.push_back(
+                parsedToken{
+                    parsedTokenType::mul,
+                    ctx->MUL()->getText()
+                }
+            );
+        }
+        else if (ctx->getToken(FormulaParser::DIV, 0) != nullptr) {
+            stack_of_tokens_.push_back(
+                parsedToken{
+                    parsedTokenType::div,
+                    ctx->DIV()->getText()
+                }
+            );
+        }
+    }
+
+    virtual void visitTerminal(antlr4::tree::TerminalNode* node) override {}
+    virtual void visitErrorNode(antlr4::tree::ErrorNode* node) override {}
+    virtual void enterEveryRule(antlr4::ParserRuleContext* ctx) override {}
+    virtual void exitEveryRule(antlr4::ParserRuleContext* ctx) override {}
+
+    string GetResult() {
+        return printStack(stack_of_tokens_.crbegin()).first;
+    }
+private:
+    enum class parsedTokenType {
+        unary_operator,
+        add,
+        sub,
+        mul,
+        div,
+        cell,
+        parens,
+        number
+    };
+    struct parsedToken {
+        parsedTokenType type;
+        string data;
+    };
+    vector<parsedToken> stack_of_tokens_;
+    pair<string, vector<parsedToken>::const_reverse_iterator> printStack(vector<parsedToken>::const_reverse_iterator current_root_token) {
+        switch (current_root_token->type) {
+        case parsedTokenType::parens:
+            return printStack(next(current_root_token));
+        case parsedTokenType::number:
+        case parsedTokenType::cell:
+            return { current_root_token->data,  next(current_root_token) };
+        case parsedTokenType::unary_operator: {
+            auto temp_result = printStack(next(current_root_token));
+            if (next(current_root_token)->type == parsedTokenType::parens)//TODO: возможно, для + не нужно
+                return { current_root_token->data + "(" + temp_result.first + ")", temp_result.second };
+            else
+                return { current_root_token->data + temp_result.first, temp_result.second };
+            break;
+        }
+        default:
+            auto right_subtree = printStack(next(current_root_token));
+            auto left_subtree = printStack(right_subtree.second);
+            switch (current_root_token->type) {
+            case parsedTokenType::add:
+                return { left_subtree.first + "+" + right_subtree.first, left_subtree.second };
+            case parsedTokenType::sub: {
+                auto next_token = nextValuableOperator(next(current_root_token));
+                if (next_token == parsedTokenType::sub || next_token == parsedTokenType::add)
+                    return { left_subtree.first + "-(" + right_subtree.first + ")", left_subtree.second };
+                else
+                    return { left_subtree.first + "-" + right_subtree.first, left_subtree.second };
+            }
+            case parsedTokenType::mul: {
+                auto next_right_token = nextValuableOperator(next(current_root_token));
+                auto next_left_token = nextValuableOperator(right_subtree.second);
+                string right_result = next_right_token == parsedTokenType::sub || next_right_token == parsedTokenType::add ?
+                    "(" + right_subtree.first + ")" :
+                    right_subtree.first;
+                string left_result = next_left_token == parsedTokenType::sub || next_left_token == parsedTokenType::add ?
+                    "(" + left_subtree.first + ")" :
+                    left_subtree.first;
+                return { left_result + "*" + right_result, left_subtree.second };
+            }
+            case parsedTokenType::div: {
+                auto next_right_token = nextValuableOperator(next(current_root_token));
+                auto next_left_token = nextValuableOperator(right_subtree.second);
+                string right_result = next_right_token != parsedTokenType::unary_operator && next_right_token != parsedTokenType::cell && next_right_token != parsedTokenType::number ?
+                    "(" + right_subtree.first + ")" :
+                    right_subtree.first;
+                string left_result = next_left_token == parsedTokenType::sub || next_left_token == parsedTokenType::add ?
+                    "(" + left_subtree.first + ")" :
+                    left_subtree.first;
+                return { left_result + "/" + right_result, left_subtree.second };
+            }
+            default:
+                throw runtime_error("shit happened during printStack 3333333333");
+            }
+        }
+    }
+    parsedTokenType nextValuableOperator(vector<parsedToken>::const_reverse_iterator current_root_token) {
+        switch (current_root_token->type) {
+        case parsedTokenType::parens:
+            return nextValuableOperator(next(current_root_token));
+        default:
+            return current_root_token->type;
+
+        }
+    }
+};
+
+IFormula::Value EvaluateFormula(istream& in, const ISheet& sheet) {
     antlr4::ANTLRInputStream input(in);
     FormulaLexer lexer(&input);
     BailErrorListener error_listener;
@@ -216,23 +404,56 @@ IFormula::Value ParseCell(istream& in, const ISheet& sheet) {
     return listener.GetResult();
 }
 
+string ReformatFormula(istream& in) {
+    antlr4::ANTLRInputStream input(in);
+    FormulaLexer lexer(&input);
+    BailErrorListener error_listener;
+    lexer.removeErrorListeners();
+    lexer.addErrorListener(&error_listener);
+
+    antlr4::CommonTokenStream tokens(&lexer);
+
+    FormulaParser parser(&tokens);
+    auto error_handler = make_shared<antlr4::BailErrorStrategy>();
+    parser.setErrorHandler(error_handler);
+    parser.removeErrorListeners();
+
+    antlr4::tree::ParseTree* tree = parser.main();  // метод соответствует корневому правилу
+    ReformattingListener listener;
+    antlr4::tree::ParseTreeWalker::DEFAULT.walk(&listener, tree);
+
+    return listener.GetResult();
+}
+
 class Formula: public IFormula {
   public:
     virtual ~Formula() = default;
     Formula() = default;
-    Formula(string expression) : expression_(expression) {}
+    Formula(string expression) : expression_(expression) {
+    }
     virtual Value Evaluate(const ISheet& sheet) const override {
         istringstream streamed(expression_);
-        return ParseCell(streamed, sheet);
+        return EvaluateFormula(streamed, sheet);
     }
     virtual string GetExpression() const override {
-        return expression_;
+        istringstream streamed(expression_);
+        return ReformatFormula(streamed);
     }
-    virtual vector<Position> GetReferencedCells() const override {}
-    virtual HandlingResult HandleInsertedRows(int first, int count = 1) override {}
-    virtual HandlingResult HandleInsertedCols(int first, int count = 1) override {}
-    virtual HandlingResult HandleDeletedRows(int first, int count = 1) override {}
-    virtual HandlingResult HandleDeletedCols(int first, int count = 1) override {}
+    virtual vector<Position> GetReferencedCells() const override {
+        return vector<Position>();
+    }
+    virtual HandlingResult HandleInsertedRows(int first, int count = 1) override {
+        return HandlingResult::NothingChanged;
+    }
+    virtual HandlingResult HandleInsertedCols(int first, int count = 1) override {
+        return HandlingResult::NothingChanged;
+    }
+    virtual HandlingResult HandleDeletedRows(int first, int count = 1) override {
+        return HandlingResult::NothingChanged;
+    }
+    virtual HandlingResult HandleDeletedCols(int first, int count = 1) override {
+        return HandlingResult::NothingChanged;
+    }
   private:
     string expression_;
 };
