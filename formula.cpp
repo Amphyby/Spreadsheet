@@ -8,6 +8,7 @@
 #include <FormulaLexer.h>
 #include <sstream>
 #include <utility>
+#include <set>
 using namespace std;
 
 class MyListener : public FormulaListener {
@@ -383,6 +384,133 @@ private:
     }
 };
 
+class CountingListener : public FormulaListener {
+public:
+    /*class CacheSingletone {
+      public:
+        map<string, IFormula::Value> cache_of_cell_values_;
+        CacheSingletone() = default;
+        static CacheSingletone& getInstance() {
+            if (instance_ == nullptr)
+                instance_ = make_unique<CacheSingletone>();
+        }
+      private:
+        static unique_ptr<CacheSingletone> instance_;
+    };*/
+    CountingListener() = default;
+
+    virtual void enterMain(FormulaParser::MainContext* ctx) override {};
+    virtual void exitMain(FormulaParser::MainContext* ctx) override {}
+
+    virtual void enterUnaryOp(FormulaParser::UnaryOpContext* ctx) override {}
+    virtual void exitUnaryOp(FormulaParser::UnaryOpContext* ctx) override {
+        stack_of_tokens_.push_back(
+            parsedToken{
+                parsedTokenType::unary_operator,
+                ctx->getToken(FormulaParser::ADD, 0) == nullptr ? ctx->SUB()->getText() : ctx->ADD()->getText()
+            }
+        );
+    }
+
+    virtual void enterParens(FormulaParser::ParensContext* ctx) override {}
+    virtual void exitParens(FormulaParser::ParensContext* ctx) override {
+        stack_of_tokens_.push_back(
+            parsedToken{
+                parsedTokenType::parens,
+                ctx->getText()
+            }
+        );
+    }
+
+    virtual void enterLiteral(FormulaParser::LiteralContext* ctx) override {}
+    virtual void exitLiteral(FormulaParser::LiteralContext* ctx) override {
+        stack_of_tokens_.push_back(
+            parsedToken{
+                parsedTokenType::number,
+                ctx->NUMBER()->getText()
+            }
+        );
+    }
+
+    virtual void enterCell(FormulaParser::CellContext* ctx) override {}
+    virtual void exitCell(FormulaParser::CellContext* ctx) override {
+        stack_of_tokens_.push_back(
+            parsedToken{
+                parsedTokenType::cell,
+                ctx->CELL()->getText()
+            }
+        );
+    }
+
+    virtual void enterBinaryOp(FormulaParser::BinaryOpContext* ctx) override {}
+    virtual void exitBinaryOp(FormulaParser::BinaryOpContext* ctx) override {
+        string data;
+        if (ctx->getToken(FormulaParser::ADD, 0) != nullptr) {
+            stack_of_tokens_.push_back(
+                parsedToken{
+                    parsedTokenType::add,
+                    ctx->ADD()->getText()
+                }
+            );
+        }
+        else if (ctx->getToken(FormulaParser::SUB, 0) != nullptr) {
+            stack_of_tokens_.push_back(
+                parsedToken{
+                    parsedTokenType::sub,
+                    ctx->SUB()->getText()
+                }
+            );
+        }
+        else if (ctx->getToken(FormulaParser::MUL, 0) != nullptr) {
+            stack_of_tokens_.push_back(
+                parsedToken{
+                    parsedTokenType::mul,
+                    ctx->MUL()->getText()
+                }
+            );
+        }
+        else if (ctx->getToken(FormulaParser::DIV, 0) != nullptr) {
+            stack_of_tokens_.push_back(
+                parsedToken{
+                    parsedTokenType::div,
+                    ctx->DIV()->getText()
+                }
+            );
+        }
+    }
+
+    virtual void visitTerminal(antlr4::tree::TerminalNode* node) override {}
+    virtual void visitErrorNode(antlr4::tree::ErrorNode* node) override {}
+    virtual void enterEveryRule(antlr4::ParserRuleContext* ctx) override {}
+    virtual void exitEveryRule(antlr4::ParserRuleContext* ctx) override {}
+
+    set<string> GetResult() {
+        set<string> result;
+        for (const auto& element : stack_of_tokens_) {
+            if (element.type == parsedTokenType::cell) {
+                result.insert(element.data);
+            }
+        }
+        return result;
+    }
+private:
+    enum class parsedTokenType {
+        unary_operator,
+        add,
+        sub,
+        mul,
+        div,
+        cell,
+        parens,
+        number
+    };
+    struct parsedToken {
+        parsedTokenType type;
+        string data;
+    };
+    vector<parsedToken> stack_of_tokens_;
+};
+
 IFormula::Value EvaluateFormula(istream& in, const ISheet& sheet) {
     antlr4::ANTLRInputStream input(in);
     FormulaLexer lexer(&input);
@@ -425,6 +553,27 @@ string ReformatFormula(istream& in) {
     return listener.GetResult();
 }
 
+set<string> CountFormulaReferences(istream& in) {
+    antlr4::ANTLRInputStream input(in);
+    FormulaLexer lexer(&input);
+    BailErrorListener error_listener;
+    lexer.removeErrorListeners();
+    lexer.addErrorListener(&error_listener);
+
+    antlr4::CommonTokenStream tokens(&lexer);
+
+    FormulaParser parser(&tokens);
+    auto error_handler = make_shared<antlr4::BailErrorStrategy>();
+    parser.setErrorHandler(error_handler);
+    parser.removeErrorListeners();
+
+    antlr4::tree::ParseTree* tree = parser.main();  // метод соответствует корневому правилу
+    CountingListener listener;
+    antlr4::tree::ParseTreeWalker::DEFAULT.walk(&listener, tree);
+
+    return listener.GetResult();
+}
+
 class Formula: public IFormula {
   public:
     virtual ~Formula() = default;
@@ -440,7 +589,14 @@ class Formula: public IFormula {
         return ReformatFormula(streamed);
     }
     virtual vector<Position> GetReferencedCells() const override {
-        return vector<Position>();
+        istringstream streamed(expression_);
+        set<string> set_of_cells = CountFormulaReferences(streamed);
+        vector<Position> result;
+        result.reserve(set_of_cells.size());
+        for (const auto& element : set_of_cells) {
+            result.push_back(Position::FromString(element));
+        }
+        return result;
     }
     virtual HandlingResult HandleInsertedRows(int first, int count = 1) override {
         return HandlingResult::NothingChanged;
