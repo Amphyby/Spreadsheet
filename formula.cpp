@@ -589,20 +589,70 @@ class Formula: public IFormula {
         return ReformatFormula(streamed);
     }
     virtual vector<Position> GetReferencedCells() const override {
+        if (!referenced_cells_.empty()) {
+            return referenced_cells_;
+        }
         istringstream streamed(expression_);
         set<string> set_of_cells = CountFormulaReferences(streamed);
-        vector<Position> result;
-        result.reserve(set_of_cells.size());
+        referenced_cells_.reserve(set_of_cells.size());
         for (const auto& element : set_of_cells) {
-            result.push_back(Position::FromString(element));
+            referenced_cells_.push_back(Position::FromString(element));
         }
-        return result;
+        return referenced_cells_;
     }
     virtual HandlingResult HandleInsertedRows(int first, int count = 1) override {
-        return HandlingResult::NothingChanged;
+        bool replace_required = false;
+        //TODO: to handle previously max row
+        struct RowCmp {
+            bool operator()(const Position& lhs, const Position& rhs) const {
+                return lhs.row > rhs.row; // NB. intentionally ignores y
+            }
+        };
+        map<Position, string, RowCmp> to_convert;
+        for (auto& referenced_cell_ : referenced_cells_) {
+            if (referenced_cell_.row >= first) {
+                auto it = to_convert.insert({referenced_cell_, ""}).first;
+                referenced_cell_.row += count;
+                it->second = referenced_cell_.ToString();
+            }
+        }
+        if (!to_convert.empty()) {
+            replace_required = true;
+        }
+        for (const auto& convcell: to_convert) {
+            string old_pos = convcell.first.ToString();
+            for (auto pos_start = expression_.find(old_pos); pos_start != string::npos; pos_start = expression_.find(old_pos)) {
+                expression_.replace(pos_start, old_pos.length(), convcell.second);
+            }
+        }
+        return replace_required ? HandlingResult::ReferencesRenamedOnly : HandlingResult::NothingChanged;
     }
     virtual HandlingResult HandleInsertedCols(int first, int count = 1) override {
-        return HandlingResult::NothingChanged;
+        bool replace_required = false;
+        //TODO: to handle previously max col
+        struct ColCmp {
+            bool operator()(const Position& lhs, const Position& rhs) const {
+                return lhs.col > rhs.col; // NB. intentionally ignores y
+            }
+        };
+        map<Position, string, ColCmp> to_convert;
+        for (auto& referenced_cell_ : referenced_cells_) {
+            if (referenced_cell_.col >= first) {
+                auto it = to_convert.insert({referenced_cell_, ""}).first;
+                referenced_cell_.col += count;
+                it->second = referenced_cell_.ToString();
+            }
+        }
+        if (!to_convert.empty()) {
+            replace_required = true;
+        }
+        for (const auto& convcell: to_convert) {
+            string old_pos = convcell.first.ToString();
+            for (auto pos_start = expression_.find(old_pos); pos_start != string::npos; pos_start = expression_.find(old_pos)) {
+                expression_.replace(pos_start, old_pos.length(), convcell.second);
+            }
+        }
+        return replace_required ? HandlingResult::ReferencesRenamedOnly : HandlingResult::NothingChanged;
     }
     virtual HandlingResult HandleDeletedRows(int first, int count = 1) override {
         return HandlingResult::NothingChanged;
@@ -612,6 +662,7 @@ class Formula: public IFormula {
     }
   private:
     string expression_;
+    mutable vector<Position> referenced_cells_;
 };
 
 unique_ptr<IFormula> ParseFormula(string expression) {

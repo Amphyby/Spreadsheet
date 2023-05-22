@@ -7,6 +7,7 @@
 #include <cmath>
 #include <charconv>
 #include <algorithm>
+#include <utility>
 #include <FormulaListener.h>
 #include <FormulaLexer.h>
 
@@ -143,7 +144,7 @@ class Cell: public ICell {
             value_ = variant_cast(formula_->Evaluate(sheet_));
         }
         else if (text_.empty()) {
-            value_ = 0;
+            value_ = 0.0;
         } else if (text.find_first_not_of("0123456789") == string::npos) {
             // TODO: возможно хранить надо текст и только как текст, а считать в formula 
             formula_ = ParseFormula(text);
@@ -199,7 +200,16 @@ class Sheet: public ISheet {
         // TODO: size affection
     }
     virtual void InsertRows(int before, int count = 1) override {}
-    virtual void InsertCols(int before, int count = 1) override {}
+    virtual void InsertCols(int before, int count = 1) override {
+        // TODO: if size+count > max size || count >= ? kMaxCols throw smth
+        if (count < 1) return;
+        for (size_t row_number = 0; row_number < Position::kMaxRows; row_number++) {
+            for (size_t col_number = Position::kMaxCols - 1 - count; col_number >= before; col_number++) {
+                sheet_.at(row_number).at(col_number + 1) = move(sheet_.at(row_number).at(col_number));
+            }
+        }
+
+    }
     virtual void DeleteRows(int first, int count = 1) override {}
     virtual void DeleteCols(int first, int count = 1) override {}
     virtual Size GetPrintableSize() const override {
