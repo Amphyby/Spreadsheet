@@ -139,7 +139,8 @@ class Cell: public ICell {
             value_ = text.substr(1);
         }
         else if (!text.empty() && text.at(0) == '=') {
-            formula_ = ParseFormula(text.substr(1));
+            string temp_string = text.substr(1, text.length()-1);
+            formula_ = ParseFormula(temp_string);
             text_ = "=" + formula_->GetExpression();
             value_ = variant_cast(formula_->Evaluate(sheet_));
         }
@@ -167,6 +168,7 @@ class Cell: public ICell {
     Value value_;
     std::unique_ptr<IFormula> formula_;
     const ISheet& sheet_;
+    friend class Sheet;
 };
 
 class Sheet: public ISheet {
@@ -184,7 +186,8 @@ class Sheet: public ISheet {
             sheet_.at(pos.row).at(pos.col) = make_unique<Cell>(*this);
         }
         sheet_.at(pos.row).at(pos.col)->setNewValue(text);
-        // TODO: affects current_size_
+        current_size_.cols = current_size_.cols < pos.col + 1 ? pos.col + 1 : current_size_.cols;
+        current_size_.rows = current_size_.rows < pos.row + 1 ? pos.row + 1 : current_size_.rows;
     }
     virtual const ICell* GetCell(Position pos) const override {
         checkPosition(pos);
@@ -199,16 +202,39 @@ class Sheet: public ISheet {
         sheet_.at(pos.row).at(pos.col) = nullptr;
         // TODO: size affection
     }
-    virtual void InsertRows(int before, int count = 1) override {}
-    virtual void InsertCols(int before, int count = 1) override {
-        // TODO: if size+count > max size || count >= ? kMaxCols throw smth
+    virtual void InsertRows(int before, int count = 1) override {
+        if (current_size_.rows + count > Position::kMaxRows) {
+            throw ex;
+        }
         if (count < 1) return;
+        current_size_.rows += count;
+        for (size_t col_number = 0; col_number < Position::kMaxCols; col_number++) {
+            for (size_t row_number = Position::kMaxCols - 1 - count; row_number >= before; row_number++) {
+                sheet_.at(row_number+1).at(col_number) = move(sheet_.at(row_number).at(col_number));
+            }
+        }
+        for (auto& row : sheet_) {
+            for (auto& cell : row) {
+                handleRowsInsertion(cell, before, count);
+            }
+        }
+    }
+    virtual void InsertCols(int before, int count = 1) override {
+        if (current_size_.cols + count > Position::kMaxCols) {
+            throw ex;
+        }
+        if (count < 1) return;
+        current_size_.cols += count;
         for (size_t row_number = 0; row_number < Position::kMaxRows; row_number++) {
             for (size_t col_number = Position::kMaxCols - 1 - count; col_number >= before; col_number++) {
                 sheet_.at(row_number).at(col_number + 1) = move(sheet_.at(row_number).at(col_number));
             }
         }
-
+        for (auto& row : sheet_) {
+            for (auto& cell : row) {
+                handleColsInsertion(cell, before, count);
+            }
+        }
     }
     virtual void DeleteRows(int first, int count = 1) override {}
     virtual void DeleteCols(int first, int count = 1) override {}
@@ -218,12 +244,19 @@ class Sheet: public ISheet {
     virtual void PrintValues(ostream& output) const override {}
     virtual void PrintTexts(ostream& output) const override {}
   private:
+    IFormula::HandlingResult handleColsInsertion(unique_ptr<Cell>& cell, int before, int count) {
+        return cell->formula_->HandleInsertedCols(before, count);
+    }
+    IFormula::HandlingResult handleRowsInsertion(unique_ptr<Cell>& cell, int before, int count) {
+        return cell->formula_->HandleInsertedRows(before, count);
+    }
     bool checkPosition(Position pos) const {
         if (!pos.IsValid())
             throw InvalidPositionException("");
     }
     vector<vector<unique_ptr<Cell>>> sheet_;
     Size current_size_;
+    TableTooBigException ex;
 };
 
 unique_ptr<ISheet> CreateSheet() {

@@ -618,7 +618,11 @@ class Formula: public IFormula {
         }
         if (!to_convert.empty()) {
             replace_required = true;
+            if (to_convert.begin()->first.row + count >= Position::kMaxRows) {
+                throw ex;
+            }
         }
+
         for (const auto& convcell: to_convert) {
             string old_pos = convcell.first.ToString();
             for (auto pos_start = expression_.find(old_pos); pos_start != string::npos; pos_start = expression_.find(old_pos)) {
@@ -629,10 +633,9 @@ class Formula: public IFormula {
     }
     virtual HandlingResult HandleInsertedCols(int first, int count = 1) override {
         bool replace_required = false;
-        //TODO: to handle previously max col
         struct ColCmp {
             bool operator()(const Position& lhs, const Position& rhs) const {
-                return lhs.col > rhs.col; // NB. intentionally ignores y
+                return lhs.col > rhs.col; // NB. intentionally ignores x
             }
         };
         map<Position, string, ColCmp> to_convert;
@@ -645,6 +648,9 @@ class Formula: public IFormula {
         }
         if (!to_convert.empty()) {
             replace_required = true;
+            if (to_convert.begin()->first.col + count >= Position::kMaxCols) {
+                throw ex;
+            }
         }
         for (const auto& convcell: to_convert) {
             string old_pos = convcell.first.ToString();
@@ -663,6 +669,7 @@ class Formula: public IFormula {
   private:
     string expression_;
     mutable vector<Position> referenced_cells_;
+    TableTooBigException ex;
 };
 
 unique_ptr<IFormula> ParseFormula(string expression) {

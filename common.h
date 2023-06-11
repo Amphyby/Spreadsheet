@@ -77,9 +77,11 @@ public:
 
 // Исключение, выбрасываемое если вставка строк/столбцов в таблицу приведёт к
 // ячейке с позицией больше максимально допустимой
-class TableTooBigException : public std::runtime_error {
-public:
-  using std::runtime_error::runtime_error;
+class TableTooBigException : public std::exception {
+  public:
+  const char * what () {
+      return "Custom C++ Exception";
+  }
 };
 
 class ICell {
