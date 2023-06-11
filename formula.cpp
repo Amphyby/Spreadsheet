@@ -601,6 +601,9 @@ class Formula: public IFormula {
         return referenced_cells_;
     }
     virtual HandlingResult HandleInsertedRows(int first, int count = 1) override {
+        if (referenced_cells_.empty()) {
+            GetReferencedCells();
+        }
         bool replace_required = false;
         //TODO: to handle previously max row
         struct RowCmp {
@@ -632,6 +635,9 @@ class Formula: public IFormula {
         return replace_required ? HandlingResult::ReferencesRenamedOnly : HandlingResult::NothingChanged;
     }
     virtual HandlingResult HandleInsertedCols(int first, int count = 1) override {
+        if (referenced_cells_.empty()) {
+            GetReferencedCells();
+        }
         bool replace_required = false;
         struct ColCmp {
             bool operator()(const Position& lhs, const Position& rhs) const {

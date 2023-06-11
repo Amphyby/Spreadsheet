@@ -139,15 +139,14 @@ class Cell: public ICell {
             value_ = text.substr(1);
         }
         else if (!text.empty() && text.at(0) == '=') {
-            string temp_string = text.substr(1, text.length()-1);
-            formula_ = ParseFormula(temp_string);
+            formula_ = ParseFormula(text.substr(1));
             text_ = "=" + formula_->GetExpression();
             value_ = variant_cast(formula_->Evaluate(sheet_));
         }
         else if (text_.empty()) {
             value_ = 0.0;
         } else if (text.find_first_not_of("0123456789") == string::npos) {
-            // TODO: возможно хранить надо текст и только как текст, а считать в formula 
+            // TODO: возможно хранить надо текст и только как текст, а считать в formula
             formula_ = ParseFormula(text);
             value_ = variant_cast(formula_->Evaluate(sheet_));
         } else {
@@ -203,6 +202,11 @@ class Sheet: public ISheet {
         // TODO: size affection
     }
     virtual void InsertRows(int before, int count = 1) override {
+        for (auto& row : sheet_) {
+            for (auto& cell : row) {
+                handleRowsInsertion(cell, before, count);
+            }
+        }
         if (current_size_.rows + count > Position::kMaxRows) {
             throw ex;
         }
@@ -213,13 +217,13 @@ class Sheet: public ISheet {
                 sheet_.at(row_number+1).at(col_number) = move(sheet_.at(row_number).at(col_number));
             }
         }
-        for (auto& row : sheet_) {
-            for (auto& cell : row) {
-                handleRowsInsertion(cell, before, count);
-            }
-        }
     }
     virtual void InsertCols(int before, int count = 1) override {
+        for (auto& row : sheet_) {
+            for (auto& cell : row) {
+                handleColsInsertion(cell, before, count);
+            }
+        }
         if (current_size_.cols + count > Position::kMaxCols) {
             throw ex;
         }
@@ -228,11 +232,6 @@ class Sheet: public ISheet {
         for (size_t row_number = 0; row_number < Position::kMaxRows; row_number++) {
             for (size_t col_number = Position::kMaxCols - 1 - count; col_number >= before; col_number++) {
                 sheet_.at(row_number).at(col_number + 1) = move(sheet_.at(row_number).at(col_number));
-            }
-        }
-        for (auto& row : sheet_) {
-            for (auto& cell : row) {
-                handleColsInsertion(cell, before, count);
             }
         }
     }
