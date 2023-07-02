@@ -589,8 +589,8 @@ int main() {
     RUN_TEST(tr, TestFormulaReferencedCells);
     RUN_TEST(tr, TestFormulaHandleInsertion);
     RUN_TEST(tr, TestInsertionOverflow);
-    /*RUN_TEST(tr, TestFormulaHandleDeletion);
-    RUN_TEST(tr, TestErrorValue);
+    RUN_TEST(tr, TestFormulaHandleDeletion);
+    /*RUN_TEST(tr, TestErrorValue);
     RUN_TEST(tr, TestErrorDiv0);
     RUN_TEST(tr, TestEmptyCellTreatedAsZero);
     RUN_TEST(tr, TestFormulaInvalidPosition);

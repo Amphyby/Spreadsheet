@@ -577,21 +577,28 @@ set<string> CountFormulaReferences(istream& in) {
 class Formula: public IFormula {
   public:
     virtual ~Formula() = default;
-    Formula() = default;
+    Formula() = delete;
     Formula(string expression) : expression_(expression) {
+        references_computed = false;
     }
     virtual Value Evaluate(const ISheet& sheet) const override {
+        if (expression_.find("#REF!") != string::npos)
+            return FormulaError(FormulaError::Category::Ref);
         istringstream streamed(expression_);
         return EvaluateFormula(streamed, sheet);
     }
     virtual string GetExpression() const override {
+        if (expression_.find("#REF!") != string::npos) {
+            return expression_;
+        }
         istringstream streamed(expression_);
         return ReformatFormula(streamed);
     }
     virtual vector<Position> GetReferencedCells() const override {
-        if (!referenced_cells_.empty()) {
+        if (references_computed) {
             return referenced_cells_;
         }
+        references_computed = true;
         istringstream streamed(expression_);
         set<string> set_of_cells = CountFormulaReferences(streamed);
         referenced_cells_.reserve(set_of_cells.size());
@@ -601,7 +608,7 @@ class Formula: public IFormula {
         return referenced_cells_;
     }
     virtual HandlingResult HandleInsertedRows(int first, int count = 1) override {
-        if (referenced_cells_.empty()) {
+        if (!references_computed) {
             GetReferencedCells();
         }
         bool replace_required = false;
@@ -612,11 +619,11 @@ class Formula: public IFormula {
             }
         };
         map<Position, string, RowCmp> to_convert;
-        for (auto& referenced_cell_ : referenced_cells_) {
-            if (referenced_cell_.row >= first) {
-                auto it = to_convert.insert({referenced_cell_, ""}).first;
-                referenced_cell_.row += count;
-                it->second = referenced_cell_.ToString();
+        for (auto& cell : referenced_cells_) {
+            if (cell.row >= first) {
+                auto it = to_convert.insert({cell, ""}).first;
+                cell.row += count;
+                it->second = cell.ToString();
             }
         }
         if (!to_convert.empty()) {
@@ -635,7 +642,7 @@ class Formula: public IFormula {
         return replace_required ? HandlingResult::ReferencesRenamedOnly : HandlingResult::NothingChanged;
     }
     virtual HandlingResult HandleInsertedCols(int first, int count = 1) override {
-        if (referenced_cells_.empty()) {
+        if (!references_computed) {
             GetReferencedCells();
         }
         bool replace_required = false;
@@ -645,11 +652,11 @@ class Formula: public IFormula {
             }
         };
         map<Position, string, ColCmp> to_convert;
-        for (auto& referenced_cell_ : referenced_cells_) {
-            if (referenced_cell_.col >= first) {
-                auto it = to_convert.insert({referenced_cell_, ""}).first;
-                referenced_cell_.col += count;
-                it->second = referenced_cell_.ToString();
+        for (auto& cell : referenced_cells_) {
+            if (cell.col >= first) {
+                auto it = to_convert.insert({cell, ""}).first;
+                cell.col += count;
+                it->second = cell.ToString();
             }
         }
         if (!to_convert.empty()) {
@@ -667,13 +674,103 @@ class Formula: public IFormula {
         return replace_required ? HandlingResult::ReferencesRenamedOnly : HandlingResult::NothingChanged;
     }
     virtual HandlingResult HandleDeletedRows(int first, int count = 1) override {
-        return HandlingResult::NothingChanged;
+        if (!references_computed) {
+            GetReferencedCells();
+        }
+        auto result = HandlingResult::NothingChanged;
+        if (!referenced_cells_.empty()) {
+            struct ColCmp {
+                bool operator()(const Position& lhs, const Position& rhs) const {
+                    return lhs.row < rhs.row;
+                }
+            };
+            map<Position, string, ColCmp> to_convert;
+            auto cmp=[](size_t lh, size_t rh) -> bool {return lh > rh;};
+            set<size_t, decltype(cmp)> to_remove(cmp);
+            for (size_t i = 0; i < referenced_cells_.size(); i++) {
+                Position& cell = referenced_cells_[i];
+                if (cell.row >= first && cell.row < first + count) {
+                    result = HandlingResult::ReferencesChanged;
+                    auto old_pos = cell.ToString();
+                    for (auto pos_start = expression_.find(old_pos); pos_start != string::npos; pos_start = expression_.find(old_pos)) {
+                        expression_.replace(pos_start, old_pos.length(), "#REF!");
+                    }
+                    result = HandlingResult::ReferencesChanged;
+                    to_remove.insert(i);
+                } else {
+                    if (cell.row < first) {
+                        //to_convert.insert({cell, cell.ToString()});
+                    } else {
+                        auto it = to_convert.insert({cell, ""}).first;
+                        cell.row -= count;
+                        it->second = cell.ToString();
+                        result = result == HandlingResult::ReferencesChanged ? result : HandlingResult::ReferencesRenamedOnly;
+                    }
+                }
+            }
+            for (const auto& convcell: to_convert) {
+                string old_pos = convcell.first.ToString();
+                for (auto pos_start = expression_.find(old_pos); pos_start != string::npos; pos_start = expression_.find(old_pos)) {
+                    expression_.replace(pos_start, old_pos.length(), convcell.second);
+                }
+            }
+            for (size_t i : to_remove) {
+                referenced_cells_.erase(referenced_cells_.begin() + i);
+            }
+        }
+        return result;
     }
     virtual HandlingResult HandleDeletedCols(int first, int count = 1) override {
-        return HandlingResult::NothingChanged;
+        //TODO: check case of int + count > maxCol and same for HandleDeletedRows
+        if (!references_computed) {
+            GetReferencedCells();
+        }
+        auto result = HandlingResult::NothingChanged;
+        if (!referenced_cells_.empty()) {
+            struct ColCmp {
+                bool operator()(const Position& lhs, const Position& rhs) const {
+                    return lhs.col < rhs.col;
+                }
+            };
+            map<Position, string, ColCmp> to_convert;
+            auto cmp=[](size_t lh, size_t rh) -> bool {return lh > rh;};
+            set<size_t, decltype(cmp)> to_remove(cmp);
+            for (size_t i = 0; i < referenced_cells_.size(); i++) {
+                Position& cell = referenced_cells_[i];
+                if (cell.col >= first && cell.col < first + count) {
+                    result = HandlingResult::ReferencesChanged;
+                    auto old_pos = cell.ToString();
+                    for (auto pos_start = expression_.find(old_pos); pos_start != string::npos; pos_start = expression_.find(old_pos)) {
+                        expression_.replace(pos_start, old_pos.length(), "#REF!");
+                    }
+                    result = HandlingResult::ReferencesChanged;
+                    to_remove.insert(i);
+                } else {
+                    if (cell.col < first) {
+                        //to_convert.insert({cell, cell.ToString()});
+                    } else {
+                        auto it = to_convert.insert({cell, ""}).first;
+                        cell.col -= count;
+                        it->second = cell.ToString();
+                        result = result == HandlingResult::ReferencesChanged ? result : HandlingResult::ReferencesRenamedOnly;
+                    }
+                }
+            }
+            for (const auto& convcell: to_convert) {
+                string old_pos = convcell.first.ToString();
+                for (auto pos_start = expression_.find(old_pos); pos_start != string::npos; pos_start = expression_.find(old_pos)) {
+                    expression_.replace(pos_start, old_pos.length(), convcell.second);
+                }
+            }
+            for (size_t i : to_remove) {
+                referenced_cells_.erase(referenced_cells_.begin() + i);
+            }
+        }
+        return result;
     }
   private:
     string expression_;
+    mutable bool references_computed;
     mutable vector<Position> referenced_cells_;
     TableTooBigException ex;
 };

@@ -116,11 +116,11 @@ bool FormulaError::operator==(FormulaError rhs) const {
 std::string_view FormulaError::ToString() const {
     switch (category_) {
     case FormulaError::Category::Ref :
-        return "Ref";
+        return "#REF!";
     case FormulaError::Category::Value :
-        return "Value";
+        return "#VALUE!";
     case FormulaError::Category::Div0 :
-        return "Div0";
+        return "#DIV0!";
     }
 }
 
@@ -244,10 +244,16 @@ class Sheet: public ISheet {
     virtual void PrintTexts(ostream& output) const override {}
   private:
     IFormula::HandlingResult handleColsInsertion(unique_ptr<Cell>& cell, int before, int count) {
-        return cell->formula_->HandleInsertedCols(before, count);
+        if (cell != nullptr && cell->formula_ != nullptr)
+            return cell->formula_->HandleInsertedCols(before, count);
+        else
+            return IFormula::HandlingResult::NothingChanged;
     }
     IFormula::HandlingResult handleRowsInsertion(unique_ptr<Cell>& cell, int before, int count) {
-        return cell->formula_->HandleInsertedRows(before, count);
+        if (cell != nullptr && cell->formula_ != nullptr)
+            return cell->formula_->HandleInsertedRows(before, count);
+        else
+            return IFormula::HandlingResult::NothingChanged;
     }
     bool checkPosition(Position pos) const {
         if (!pos.IsValid())
