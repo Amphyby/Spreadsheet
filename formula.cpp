@@ -9,6 +9,7 @@
 #include <sstream>
 #include <utility>
 #include <set>
+#include <cmath>
 using namespace std;
 
 class MyListener : public FormulaListener {
@@ -200,7 +201,7 @@ class BailErrorListener : public antlr4::BaseErrorListener {
 };
 
 class ReformattingListener : public FormulaListener {
-public:
+  public:
     /*class CacheSingletone {
       public:
         map<string, IFormula::Value> cache_of_cell_values_;
@@ -220,40 +221,40 @@ public:
     virtual void enterUnaryOp(FormulaParser::UnaryOpContext* ctx) override {}
     virtual void exitUnaryOp(FormulaParser::UnaryOpContext* ctx) override {
         stack_of_tokens_.push_back(
-            parsedToken{
-                parsedTokenType::unary_operator,
-                ctx->getToken(FormulaParser::ADD, 0) == nullptr ? ctx->SUB()->getText() : ctx->ADD()->getText()
-            }
+        parsedToken{
+            parsedTokenType::unary_operator,
+            ctx->getToken(FormulaParser::ADD, 0) == nullptr ? ctx->SUB()->getText() : ctx->ADD()->getText()
+        }
         );
     }
 
     virtual void enterParens(FormulaParser::ParensContext* ctx) override {}
     virtual void exitParens(FormulaParser::ParensContext* ctx) override {
         stack_of_tokens_.push_back(
-            parsedToken{
-                parsedTokenType::parens,
-                ctx->getText()
-            }
+        parsedToken{
+            parsedTokenType::parens,
+            ctx->getText()
+        }
         );
     }
 
     virtual void enterLiteral(FormulaParser::LiteralContext* ctx) override {}
     virtual void exitLiteral(FormulaParser::LiteralContext* ctx) override {
         stack_of_tokens_.push_back(
-            parsedToken{
-                parsedTokenType::number,
-                ctx->NUMBER()->getText()
-            }
+        parsedToken{
+            parsedTokenType::number,
+            ctx->NUMBER()->getText()
+        }
         );
     }
 
     virtual void enterCell(FormulaParser::CellContext* ctx) override {}
     virtual void exitCell(FormulaParser::CellContext* ctx) override {
         stack_of_tokens_.push_back(
-            parsedToken{
-                parsedTokenType::cell,
-                ctx->CELL()->getText()
-            }
+        parsedToken{
+            parsedTokenType::cell,
+            ctx->CELL()->getText()
+        }
         );
     }
 
@@ -262,34 +263,31 @@ public:
         string data;
         if (ctx->getToken(FormulaParser::ADD, 0) != nullptr) {
             stack_of_tokens_.push_back(
-                parsedToken{
-                    parsedTokenType::add,
-                    ctx->ADD()->getText()
-                }
+            parsedToken{
+                parsedTokenType::add,
+                ctx->ADD()->getText()
+            }
             );
-        }
-        else if (ctx->getToken(FormulaParser::SUB, 0) != nullptr) {
+        } else if (ctx->getToken(FormulaParser::SUB, 0) != nullptr) {
             stack_of_tokens_.push_back(
-                parsedToken{
-                    parsedTokenType::sub,
-                    ctx->SUB()->getText()
-                }
+            parsedToken{
+                parsedTokenType::sub,
+                ctx->SUB()->getText()
+            }
             );
-        }
-        else if (ctx->getToken(FormulaParser::MUL, 0) != nullptr) {
+        } else if (ctx->getToken(FormulaParser::MUL, 0) != nullptr) {
             stack_of_tokens_.push_back(
-                parsedToken{
-                    parsedTokenType::mul,
-                    ctx->MUL()->getText()
-                }
+            parsedToken{
+                parsedTokenType::mul,
+                ctx->MUL()->getText()
+            }
             );
-        }
-        else if (ctx->getToken(FormulaParser::DIV, 0) != nullptr) {
+        } else if (ctx->getToken(FormulaParser::DIV, 0) != nullptr) {
             stack_of_tokens_.push_back(
-                parsedToken{
-                    parsedTokenType::div,
-                    ctx->DIV()->getText()
-                }
+            parsedToken{
+                parsedTokenType::div,
+                ctx->DIV()->getText()
+            }
             );
         }
     }
@@ -302,7 +300,7 @@ public:
     string GetResult() {
         return printStack(stack_of_tokens_.crbegin()).first;
     }
-private:
+  private:
     enum class parsedTokenType {
         unary_operator,
         add,
@@ -350,22 +348,22 @@ private:
                 auto next_right_token = nextValuableOperator(next(current_root_token));
                 auto next_left_token = nextValuableOperator(right_subtree.second);
                 string right_result = next_right_token == parsedTokenType::sub || next_right_token == parsedTokenType::add ?
-                    "(" + right_subtree.first + ")" :
-                    right_subtree.first;
+                                      "(" + right_subtree.first + ")" :
+                                      right_subtree.first;
                 string left_result = next_left_token == parsedTokenType::sub || next_left_token == parsedTokenType::add ?
-                    "(" + left_subtree.first + ")" :
-                    left_subtree.first;
+                                     "(" + left_subtree.first + ")" :
+                                     left_subtree.first;
                 return { left_result + "*" + right_result, left_subtree.second };
             }
             case parsedTokenType::div: {
                 auto next_right_token = nextValuableOperator(next(current_root_token));
                 auto next_left_token = nextValuableOperator(right_subtree.second);
                 string right_result = next_right_token != parsedTokenType::unary_operator && next_right_token != parsedTokenType::cell && next_right_token != parsedTokenType::number ?
-                    "(" + right_subtree.first + ")" :
-                    right_subtree.first;
+                                      "(" + right_subtree.first + ")" :
+                                      right_subtree.first;
                 string left_result = next_left_token == parsedTokenType::sub || next_left_token == parsedTokenType::add ?
-                    "(" + left_subtree.first + ")" :
-                    left_subtree.first;
+                                     "(" + left_subtree.first + ")" :
+                                     left_subtree.first;
                 return { left_result + "/" + right_result, left_subtree.second };
             }
             default:
@@ -385,7 +383,7 @@ private:
 };
 
 class CountingListener : public FormulaListener {
-public:
+  public:
     /*class CacheSingletone {
       public:
         map<string, IFormula::Value> cache_of_cell_values_;
@@ -405,40 +403,40 @@ public:
     virtual void enterUnaryOp(FormulaParser::UnaryOpContext* ctx) override {}
     virtual void exitUnaryOp(FormulaParser::UnaryOpContext* ctx) override {
         stack_of_tokens_.push_back(
-            parsedToken{
-                parsedTokenType::unary_operator,
-                ctx->getToken(FormulaParser::ADD, 0) == nullptr ? ctx->SUB()->getText() : ctx->ADD()->getText()
-            }
+        parsedToken{
+            parsedTokenType::unary_operator,
+            ctx->getToken(FormulaParser::ADD, 0) == nullptr ? ctx->SUB()->getText() : ctx->ADD()->getText()
+        }
         );
     }
 
     virtual void enterParens(FormulaParser::ParensContext* ctx) override {}
     virtual void exitParens(FormulaParser::ParensContext* ctx) override {
         stack_of_tokens_.push_back(
-            parsedToken{
-                parsedTokenType::parens,
-                ctx->getText()
-            }
+        parsedToken{
+            parsedTokenType::parens,
+            ctx->getText()
+        }
         );
     }
 
     virtual void enterLiteral(FormulaParser::LiteralContext* ctx) override {}
     virtual void exitLiteral(FormulaParser::LiteralContext* ctx) override {
         stack_of_tokens_.push_back(
-            parsedToken{
-                parsedTokenType::number,
-                ctx->NUMBER()->getText()
-            }
+        parsedToken{
+            parsedTokenType::number,
+            ctx->NUMBER()->getText()
+        }
         );
     }
 
     virtual void enterCell(FormulaParser::CellContext* ctx) override {}
     virtual void exitCell(FormulaParser::CellContext* ctx) override {
         stack_of_tokens_.push_back(
-            parsedToken{
-                parsedTokenType::cell,
-                ctx->CELL()->getText()
-            }
+        parsedToken{
+            parsedTokenType::cell,
+            ctx->CELL()->getText()
+        }
         );
     }
 
@@ -447,34 +445,31 @@ public:
         string data;
         if (ctx->getToken(FormulaParser::ADD, 0) != nullptr) {
             stack_of_tokens_.push_back(
-                parsedToken{
-                    parsedTokenType::add,
-                    ctx->ADD()->getText()
-                }
+            parsedToken{
+                parsedTokenType::add,
+                ctx->ADD()->getText()
+            }
             );
-        }
-        else if (ctx->getToken(FormulaParser::SUB, 0) != nullptr) {
+        } else if (ctx->getToken(FormulaParser::SUB, 0) != nullptr) {
             stack_of_tokens_.push_back(
-                parsedToken{
-                    parsedTokenType::sub,
-                    ctx->SUB()->getText()
-                }
+            parsedToken{
+                parsedTokenType::sub,
+                ctx->SUB()->getText()
+            }
             );
-        }
-        else if (ctx->getToken(FormulaParser::MUL, 0) != nullptr) {
+        } else if (ctx->getToken(FormulaParser::MUL, 0) != nullptr) {
             stack_of_tokens_.push_back(
-                parsedToken{
-                    parsedTokenType::mul,
-                    ctx->MUL()->getText()
-                }
+            parsedToken{
+                parsedTokenType::mul,
+                ctx->MUL()->getText()
+            }
             );
-        }
-        else if (ctx->getToken(FormulaParser::DIV, 0) != nullptr) {
+        } else if (ctx->getToken(FormulaParser::DIV, 0) != nullptr) {
             stack_of_tokens_.push_back(
-                parsedToken{
-                    parsedTokenType::div,
-                    ctx->DIV()->getText()
-                }
+            parsedToken{
+                parsedTokenType::div,
+                ctx->DIV()->getText()
+            }
             );
         }
     }
@@ -493,7 +488,7 @@ public:
         }
         return result;
     }
-private:
+  private:
     enum class parsedTokenType {
         unary_operator,
         add,
