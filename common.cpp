@@ -120,7 +120,7 @@ std::string_view FormulaError::ToString() const {
     case FormulaError::Category::Value :
         return "#VALUE!";
     case FormulaError::Category::Div0 :
-        return "#DIV0!";
+        return "#DIV/0!";
     }
 }
 

@@ -590,9 +590,9 @@ int main() {
     RUN_TEST(tr, TestFormulaHandleInsertion);
     RUN_TEST(tr, TestInsertionOverflow);
     RUN_TEST(tr, TestFormulaHandleDeletion);
-    /*RUN_TEST(tr, TestErrorValue);
+    RUN_TEST(tr, TestErrorValue);
     RUN_TEST(tr, TestErrorDiv0);
-    RUN_TEST(tr, TestEmptyCellTreatedAsZero);
+    /*RUN_TEST(tr, TestEmptyCellTreatedAsZero);
     RUN_TEST(tr, TestFormulaInvalidPosition);
     RUN_TEST(tr, TestCellErrorPropagation);
     RUN_TEST(tr, TestCellsDeletionSimple);

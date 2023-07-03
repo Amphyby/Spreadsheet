@@ -177,7 +177,7 @@ class MyListener : public FormulaListener {
             case parsedTokenType::mul :
                 return {left_val * right_val, left_part_result.second};
             case parsedTokenType::div :
-                return right_val == 0 ?
+                return right_val == 0 || !isfinite(left_val) || !isfinite(1 / right_val) ?
                        pair<IFormula::Value, vector<parsedToken>::const_reverse_iterator> {FormulaError(FormulaError::Category::Div0), left_part_result.second} :
                        pair<IFormula::Value, vector<parsedToken>::const_reverse_iterator> {left_val / right_val, left_part_result.second};
             default:
