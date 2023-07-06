@@ -136,8 +136,11 @@ class MyListener : public FormulaListener {
         switch (current_root_token->type) {
         case parsedTokenType::parens:
             return recursiveComputations(next(current_root_token));
-        case parsedTokenType::number:
-            return {double(stoi(current_root_token->data)), next(current_root_token)};
+        case parsedTokenType::number: {
+            return !isfinite(stod(current_root_token->data))?
+                   pair<IFormula::Value, vector<parsedToken>::const_reverse_iterator> {FormulaError(FormulaError::Category::Div0), next(current_root_token)} :
+                   pair<IFormula::Value, vector<parsedToken>::const_reverse_iterator> {stod(current_root_token->data), next(current_root_token)};
+        }
         case parsedTokenType::cell: {
             Position pos = Position::FromString(current_root_token->data);
             const ICell* cell = sheet_.GetCell(pos);
@@ -172,13 +175,19 @@ class MyListener : public FormulaListener {
             double right_val = get<double>(right_part_result.first);
             switch (current_root_token->type) {
             case parsedTokenType::add :
-                return {left_val + right_val, left_part_result.second};
+                return !isfinite(left_val + right_val) ?
+                       pair<IFormula::Value, vector<parsedToken>::const_reverse_iterator> {FormulaError(FormulaError::Category::Div0), left_part_result.second} :
+                       pair<IFormula::Value, vector<parsedToken>::const_reverse_iterator> {left_val + right_val, left_part_result.second};
             case parsedTokenType::sub :
-                return {left_val - right_val, left_part_result.second};
+                return !isfinite(left_val - right_val) ?
+                       pair<IFormula::Value, vector<parsedToken>::const_reverse_iterator> {FormulaError(FormulaError::Category::Div0), left_part_result.second} :
+                       pair<IFormula::Value, vector<parsedToken>::const_reverse_iterator> {left_val - right_val, left_part_result.second};
             case parsedTokenType::mul :
-                return {left_val * right_val, left_part_result.second};
+                return !isfinite(left_val * right_val) ?
+                       pair<IFormula::Value, vector<parsedToken>::const_reverse_iterator> {FormulaError(FormulaError::Category::Div0), left_part_result.second} :
+                       pair<IFormula::Value, vector<parsedToken>::const_reverse_iterator> {left_val * right_val, left_part_result.second};
             case parsedTokenType::div :
-                return right_val == 0 || !isfinite(left_val) || !isfinite(1 / right_val) ?
+                return right_val == 0 || !isfinite(left_val / right_val) ?
                        pair<IFormula::Value, vector<parsedToken>::const_reverse_iterator> {FormulaError(FormulaError::Category::Div0), left_part_result.second} :
                        pair<IFormula::Value, vector<parsedToken>::const_reverse_iterator> {left_val / right_val, left_part_result.second};
             default:
