@@ -143,7 +143,7 @@ class MyListener : public FormulaListener {
         }
         case parsedTokenType::cell: {
             Position pos = Position::FromString(current_root_token->data);
-            const ICell* cell = sheet_.GetCell(pos);
+            const ICell*cell = sheet_.GetCell(pos);
             if (cell == nullptr) {
                 return { 0.0, next(current_root_token) };
             }
@@ -529,11 +529,14 @@ IFormula::Value EvaluateFormula(istream& in, const ISheet& sheet) {
     parser.setErrorHandler(error_handler);
     parser.removeErrorListeners();
 
-    antlr4::tree::ParseTree* tree = parser.main();  // метод соответствует корневому правилу
-    MyListener listener(sheet);
-    antlr4::tree::ParseTreeWalker::DEFAULT.walk(&listener, tree);
-
-    return listener.GetResult();
+    try {
+        antlr4::tree::ParseTree* tree = parser.main();  // метод соответствует корневому правилу
+        MyListener listener(sheet);
+        antlr4::tree::ParseTreeWalker::DEFAULT.walk(&listener, tree);
+        return listener.GetResult();
+    } catch (...) {
+        throw FormulaException("");
+    }
 }
 
 string ReformatFormula(istream& in) {
@@ -550,11 +553,14 @@ string ReformatFormula(istream& in) {
     parser.setErrorHandler(error_handler);
     parser.removeErrorListeners();
 
-    antlr4::tree::ParseTree* tree = parser.main();  // метод соответствует корневому правилу
-    ReformattingListener listener;
-    antlr4::tree::ParseTreeWalker::DEFAULT.walk(&listener, tree);
-
-    return listener.GetResult();
+    try {
+        antlr4::tree::ParseTree* tree = parser.main();  // метод соответствует корневому правилу
+        ReformattingListener listener;
+        antlr4::tree::ParseTreeWalker::DEFAULT.walk(&listener, tree);
+        return listener.GetResult();
+    } catch (std::exception& any) {
+        throw FormulaException("");
+    }
 }
 
 set<string> CountFormulaReferences(istream& in) {
@@ -571,11 +577,14 @@ set<string> CountFormulaReferences(istream& in) {
     parser.setErrorHandler(error_handler);
     parser.removeErrorListeners();
 
-    antlr4::tree::ParseTree* tree = parser.main();  // метод соответствует корневому правилу
-    CountingListener listener;
-    antlr4::tree::ParseTreeWalker::DEFAULT.walk(&listener, tree);
-
-    return listener.GetResult();
+    try {
+        antlr4::tree::ParseTree* tree = parser.main();  // метод соответствует корневому правилу
+        CountingListener listener;
+        antlr4::tree::ParseTreeWalker::DEFAULT.walk(&listener, tree);
+        return listener.GetResult();
+    } catch (...) {
+        throw FormulaException("");
+    }
 }
 
 class Formula: public IFormula {

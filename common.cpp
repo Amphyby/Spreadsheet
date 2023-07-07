@@ -137,13 +137,11 @@ class Cell: public ICell {
         text_ = text;
         if (!text.empty() && text.at(0) == '\'') {
             value_ = text.substr(1);
-        }
-        else if (!text.empty() && text.at(0) == '=') {
+        } else if (!text.empty() && text.at(0) == '=') {
             formula_ = ParseFormula(text.substr(1));
             text_ = "=" + formula_->GetExpression();
             value_ = variant_cast(formula_->Evaluate(sheet_));
-        }
-        else if (text_.empty()) {
+        } else if (text_.empty()) {
             value_ = 0.0;
         } else if (text.find_first_not_of("0123456789") == string::npos) {
             // TODO: возможно хранить надо текст и только как текст, а считать в formula
