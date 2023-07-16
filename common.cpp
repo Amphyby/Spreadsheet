@@ -150,7 +150,6 @@ public:
 			value_ = text.substr(1);
 		} else if (!text.empty() && text.at(0) == '=') {
 			formula_ = ParseFormula(text.substr(1));
-			text_ = "=" + formula_->GetExpression();
 			value_ = variant_cast(formula_->Evaluate(sheet_));
 		} else if (text_.empty()) {
 			value_ = 0.0;
@@ -171,7 +170,11 @@ public:
 	}
 
 	virtual string GetText() const override {
-		return text_;
+		if (formula_ == nullptr) {
+			return text_;
+		} else {
+			return "=" + formula_->GetExpression();
+		}
 	}
 
 	virtual vector<Position> GetReferencedCells() const override {
@@ -204,6 +207,12 @@ public:
 			sheet_.at(pos.row).at(pos.col) = make_unique<Cell>(*this);
 		}
 		sheet_.at(pos.row).at(pos.col)->setNewValue(text);
+		if (sheet_.at(pos.row).at(pos.col)->formula_ != nullptr) {
+			auto referenced_cells = sheet_.at(pos.row).at(pos.col)->GetReferencedCells();
+			for (const Position &cell: referenced_cells) {
+				dependency_graph_[cell].insert(pos);
+			}
+		}
 		current_size_.cols = current_size_.cols < pos.col + 1 ? pos.col + 1 : current_size_.cols;
 		current_size_.rows = current_size_.rows < pos.row + 1 ? pos.row + 1 : current_size_.rows;
 	}
@@ -264,7 +273,7 @@ public:
 		// TODO: has to affect size
 		for (auto &row: sheet_) {
 			for (auto &cell: row) {
-				handleColsDeletion(cell, first, count);
+				handleRowsDeletion(cell, first, count);
 			}
 		}
 		if (count < 1) return;
@@ -308,7 +317,15 @@ private:
 
 	IFormula::HandlingResult handleColsDeletion(unique_ptr<Cell> &cell, int first, int count) {
 		if (cell != nullptr && cell->formula_ != nullptr) {
-			return cell->formula_->HandleInsertedRows(first, count);
+			return cell->formula_->HandleDeletedCols(first, count);
+		} else {
+			return IFormula::HandlingResult::NothingChanged;
+		}
+	}
+
+	IFormula::HandlingResult handleRowsDeletion(unique_ptr<Cell> &cell, int first, int count) {
+		if (cell != nullptr && cell->formula_ != nullptr) {
+			return cell->formula_->HandleDeletedRows(first, count);
 		} else {
 			return IFormula::HandlingResult::NothingChanged;
 		}
@@ -321,6 +338,7 @@ private:
 	}
 
 	vector<vector<unique_ptr<Cell>>> sheet_;
+	std::map<Position, std::set<Position>> dependency_graph_; // Cell->set of Cells depending on Cell
 	Size current_size_;
 	TableTooBigException ex;
 };
