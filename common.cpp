@@ -155,8 +155,8 @@ public:
 			value_ = 0.0;
 		} else if (text.find_first_not_of("0123456789") == string::npos) {
 			// TODO: возможно хранить надо текст и только как текст, а считать в formula
-			formula_ = ParseFormula(text);
-			value_ = variant_cast(formula_->Evaluate(sheet_));
+			//formula_ = ParseFormula(text);
+			value_ = stod(text);
 		} else {
 			value_ = text;
 		}
@@ -276,16 +276,25 @@ public:
 				handleRowsDeletion(cell, first, count);
 			}
 		}
-		if (count < 1) return;
-		current_size_.cols += count;
-		for (size_t row_number = first; row_number < Position::kMaxRows - 1; row_number++) {
+		for (size_t row_number = first; row_number < Position::kMaxRows - 1 - count; row_number++) {
 			for (size_t col_number = 0; col_number < Position::kMaxCols; col_number++) {
-				sheet_.at(row_number).at(col_number) = move(sheet_.at(row_number+1).at(col_number));
+				sheet_.at(row_number).at(col_number) = move(sheet_.at(row_number+count).at(col_number));
 			}
 		}
 	}
 
 	virtual void DeleteCols(int first, int count = 1) override {
+		// TODO: has to affect size
+		for (auto &row: sheet_) {
+			for (auto &cell: row) {
+				handleColsDeletion(cell, first, count);
+			}
+		}
+		for (size_t col_idx = first; col_idx < Position::kMaxCols - 1 - count; col_idx++) {//GetPrintableSize().cols; col_idx++) {
+			for (size_t row_idx = 0; row_idx < Position::kMaxRows; row_idx++) {//GetPrintableSize().rows; col_idx++) {
+				sheet_.at(row_idx).at(col_idx) = move(sheet_.at(row_idx).at(col_idx + count));
+			}
+		}
 	}
 
 	virtual Size GetPrintableSize() const override {
