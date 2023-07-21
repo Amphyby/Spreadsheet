@@ -190,11 +190,21 @@ private:
 	friend class Sheet;
 };
 
+template<typename T, typename... Ts>
+std::ostream& operator<<(std::ostream& os, const std::variant<T, Ts...>& v)
+{
+    std::visit([&os](auto&& arg) {
+        os << arg;
+    }, v);
+    return os;
+}
+
+
 class Sheet : public ISheet {
 public:
 	virtual ~Sheet() = default;
 
-	Sheet() : current_size_({0, 0}) {
+    Sheet() : current_size_({0, 0}) {
 		sheet_.resize(Position::kMaxRows);
 		for (auto &&row: sheet_) {
 			row.resize(Position::kMaxCols);
@@ -230,20 +240,26 @@ public:
 	virtual void ClearCell(Position pos) override {
 		checkPosition(pos);
 		sheet_.at(pos.row).at(pos.col) = nullptr;
-		// TODO: size affection
+        if (pos.row + 1 == current_size_.rows || pos.col + 1 == current_size_.cols) {
+            recalculate_size();
+        }
 	}
 
-	virtual void InsertRows(int before, int count = 1) override {
-		for (auto &row: sheet_) {
+    virtual void InsertRows(int before, int count = 1) override {
+        if (count < 1) {
+            return;
+        }
+        for (auto &row: sheet_) {
 			for (auto &cell: row) {
 				handleRowsInsertion(cell, before, count);
 			}
 		}
 		if (current_size_.rows + count > Position::kMaxRows) {
 			throw ex;
-		}
-		if (count < 1) return;
-		current_size_.rows += count;
+        }
+        if (before < current_size_.rows) {
+            current_size_.rows += count;
+        }
 		for (size_t col_number = 0; col_number < Position::kMaxCols; col_number++) {
 			for (size_t row_number = Position::kMaxCols - 1 - count; row_number >= before; row_number--) {
 				sheet_.at(row_number + 1).at(col_number) = move(sheet_.at(row_number).at(col_number));
@@ -251,17 +267,21 @@ public:
 		}
 	}
 
-	virtual void InsertCols(int before, int count = 1) override {
-		for (auto &row: sheet_) {
+    virtual void InsertCols(int before, int count = 1) override {
+        if (count < 1) {
+            return;
+        }
+        for (auto &row: sheet_) {
 			for (auto &cell: row) {
 				handleColsInsertion(cell, before, count);
 			}
 		}
 		if (current_size_.cols + count > Position::kMaxCols) {
 			throw ex;
-		}
-		if (count < 1) return;
-		current_size_.cols += count;
+        }
+        if (before < current_size_.cols) {
+            current_size_.cols += count;
+        }
 		for (size_t row_number = 0; row_number < Position::kMaxRows; row_number++) {
 			for (size_t col_number = Position::kMaxCols - 1 - count; col_number >= before; col_number--) {
 				sheet_.at(row_number).at(col_number + 1) = move(sheet_.at(row_number).at(col_number));
@@ -269,29 +289,47 @@ public:
 		}
 	}
 
-	virtual void DeleteRows(int first, int count = 1) override {
-		// TODO: has to affect size
+    virtual void DeleteRows(int first, int count = 1) override {
+        if (count < 1) {
+            return;
+        }
 		for (auto &row: sheet_) {
 			for (auto &cell: row) {
 				handleRowsDeletion(cell, first, count);
 			}
 		}
-		for (size_t row_number = first; row_number < Position::kMaxRows - 1 - count; row_number++) {
-			for (size_t col_number = 0; col_number < Position::kMaxCols; col_number++) {
+        if (first < current_size_.rows) {
+            if (first + count < current_size_.rows) {
+                current_size_.rows -= count;
+            } else {
+                current_size_.rows = first;
+            }
+        }
+        for (size_t row_number = first; row_number < Position::kMaxRows - 1 - count; row_number++) {
+            for (size_t col_number = 0; col_number < Position::kMaxCols; col_number++) {
 				sheet_.at(row_number).at(col_number) = move(sheet_.at(row_number+count).at(col_number));
 			}
 		}
 	}
 
-	virtual void DeleteCols(int first, int count = 1) override {
-		// TODO: has to affect size
+    virtual void DeleteCols(int first, int count = 1) override {
+        if (count < 1) {
+            return;
+        }
 		for (auto &row: sheet_) {
 			for (auto &cell: row) {
 				handleColsDeletion(cell, first, count);
 			}
 		}
-		for (size_t col_idx = first; col_idx < Position::kMaxCols - 1 - count; col_idx++) {//GetPrintableSize().cols; col_idx++) {
-			for (size_t row_idx = 0; row_idx < Position::kMaxRows; row_idx++) {//GetPrintableSize().rows; col_idx++) {
+        if (first < current_size_.cols) {
+            if (first + count < current_size_.cols) {
+                current_size_.cols -= count;
+            } else {
+                current_size_.cols = first;
+            }
+        }
+        for (size_t col_idx = first; col_idx < Position::kMaxCols - 1 - count; col_idx++) {//GetPrintableSize().cols; col_idx++) {
+            for (size_t row_idx = 0; row_idx < Position::kMaxRows; row_idx++) {//GetPrintableSize().rows; col_idx++) {
 				sheet_.at(row_idx).at(col_idx) = move(sheet_.at(row_idx).at(col_idx + count));
 			}
 		}
@@ -302,9 +340,43 @@ public:
 	}
 
 	virtual void PrintValues(ostream &output) const override {
+        for (size_t row = 0; row < current_size_.rows - 1; row++) {
+            for (size_t col = 0; col < current_size_.cols - 1; col++) {
+                ICell::Value cell_value = sheet_.at(row).at(col) != nullptr ? sheet_.at(row).at(col)->GetValue() : "";
+                output << cell_value << "\t";
+            }
+            size_t col = current_size_.cols - 1;
+            ICell::Value cell_value = sheet_.at(row).at(col) != nullptr ? sheet_.at(row).at(col)->GetValue() : "";
+            output << cell_value << "\n";
+        }
+        size_t row = current_size_.rows - 1;
+        for (size_t col = 0; col < current_size_.cols - 1; col++) {
+            ICell::Value cell_value = sheet_.at(row).at(col) != nullptr ? sheet_.at(row).at(col)->GetValue() : "";
+            output << cell_value << "\t";
+        }
+        size_t col = current_size_.cols - 1;
+        ICell::Value cell_value = sheet_.at(row).at(col) != nullptr ? sheet_.at(row).at(col)->GetValue() : "";
+        output << cell_value << "\n";
 	}
 
 	virtual void PrintTexts(ostream &output) const override {
+        for (size_t row = 0; row < current_size_.rows - 1; row++) {
+            for (size_t col = 0; col < current_size_.cols - 1; col++) {
+                std::string cell_value = sheet_.at(row).at(col) != nullptr ? sheet_.at(row).at(col)->GetText() : "";
+                output << cell_value << "\t";
+            }
+            size_t col = current_size_.cols - 1;
+            std::string cell_value = sheet_.at(row).at(col) != nullptr ? sheet_.at(row).at(col)->GetText() : "";
+            output << cell_value << "\n";
+        }
+        size_t row = current_size_.rows - 1;
+        for (size_t col = 0; col < current_size_.cols - 1; col++) {
+            std::string cell_value = sheet_.at(row).at(col) != nullptr ? sheet_.at(row).at(col)->GetText() : "";
+            output << cell_value << "\t";
+        }
+        size_t col = current_size_.cols - 1;
+        std::string cell_value = sheet_.at(row).at(col) != nullptr ? sheet_.at(row).at(col)->GetText() : "";
+        output << cell_value << "\n";
 	}
 
 private:
@@ -346,7 +418,20 @@ private:
 		}
 	}
 
-	vector<vector<unique_ptr<Cell>>> sheet_;
+    void recalculate_size(){
+        Size result{};
+        for (size_t row = 0; row < Position::kMaxRows; row++) {
+            for (size_t col = 0; col < Position::kMaxCols; col++) {
+                if (sheet_.at(row).at(col) != nullptr && std::holds_alternative<std::string>(sheet_.at(row).at(col)->GetValue()) && std::get<std::string>(sheet_.at(row).at(col)->GetValue()) != "") {
+                    result.rows = row + 1;
+                    result.cols = result.cols < col + 1 ? col + 1 : result.cols;
+                }
+            }
+        }
+        current_size_ = move(result);
+    };
+
+    vector<vector<unique_ptr<Cell>>> sheet_;
 	std::map<Position, std::set<Position>> dependency_graph_; // Cell->set of Cells depending on Cell
 	Size current_size_;
 	TableTooBigException ex;
