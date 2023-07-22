@@ -599,8 +599,8 @@ int main() {
     RUN_TEST(tr, TestCellsDeletion);
     RUN_TEST(tr, TestCellsDeletionAdjacent);
     RUN_TEST(tr, TestPrint);
-    /*RUN_TEST(tr, TestCellReferences);
-    RUN_TEST(tr, TestFormulaIncorrect);
+    RUN_TEST(tr, TestCellReferences);
+    /*RUN_TEST(tr, TestFormulaIncorrect);
     RUN_TEST(tr, TestCellCircularReferences);*/
     return 0;
 }

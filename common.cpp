@@ -141,11 +141,12 @@ class Cell : public ICell {
 public:
 	virtual ~Cell() = default;
 
-	Cell(const ISheet &sheet) : sheet_(sheet) {
+    Cell(const ISheet &sheet) : sheet_(sheet), formula_(nullptr), value_(0.0) {
 	}
 
 	void setNewValue(string text) {
 		text_ = text;
+        formula_ = nullptr;
 		if (!text.empty() && text.at(0) == '\'') {
 			value_ = text.substr(1);
 		} else if (!text.empty() && text.at(0) == '=') {
@@ -177,8 +178,12 @@ public:
 		}
 	}
 
-	virtual vector<Position> GetReferencedCells() const override {
-		return formula_->GetReferencedCells();
+    virtual vector<Position> GetReferencedCells() const override {
+        if (formula_ != nullptr) {
+            return formula_->GetReferencedCells();
+        } else {
+            return vector<Position>{};
+        }
 	}
 
 private:
@@ -208,14 +213,14 @@ public:
 		sheet_.resize(Position::kMaxRows);
 		for (auto &&row: sheet_) {
 			row.resize(Position::kMaxCols);
+            for (auto& el: row) {
+                el = make_unique<Cell>(*this);
+            }
 		}
 	}
 
 	virtual void SetCell(Position pos, string text) override {
-		checkPosition(pos);
-		if (sheet_.at(pos.row).at(pos.col) == nullptr) {
-			sheet_.at(pos.row).at(pos.col) = make_unique<Cell>(*this);
-		}
+        checkPosition(pos);
 		sheet_.at(pos.row).at(pos.col)->setNewValue(text);
 		if (sheet_.at(pos.row).at(pos.col)->formula_ != nullptr) {
 			auto referenced_cells = sheet_.at(pos.row).at(pos.col)->GetReferencedCells();
@@ -228,7 +233,7 @@ public:
 	}
 
 	virtual const ICell *GetCell(Position pos) const override {
-		checkPosition(pos);
+        checkPosition(pos);
 		return sheet_.at(pos.row).at(pos.col).get();
 	}
 
@@ -310,6 +315,8 @@ public:
 				sheet_.at(row_number).at(col_number) = move(sheet_.at(row_number+count).at(col_number));
 			}
 		}
+        //have to recreate last count rows with empty cells
+        //same for DeleteCols
 	}
 
     virtual void DeleteCols(int first, int count = 1) override {
@@ -340,43 +347,27 @@ public:
 	}
 
 	virtual void PrintValues(ostream &output) const override {
-        for (size_t row = 0; row < current_size_.rows - 1; row++) {
+        for (size_t row = 0; row < current_size_.rows; row++) {
             for (size_t col = 0; col < current_size_.cols - 1; col++) {
-                ICell::Value cell_value = sheet_.at(row).at(col) != nullptr ? sheet_.at(row).at(col)->GetValue() : "";
+                ICell::Value cell_value = sheet_.at(row).at(col)->GetText() != "" ? sheet_.at(row).at(col)->GetValue() : "";
                 output << cell_value << "\t";
             }
             size_t col = current_size_.cols - 1;
-            ICell::Value cell_value = sheet_.at(row).at(col) != nullptr ? sheet_.at(row).at(col)->GetValue() : "";
+            ICell::Value cell_value = sheet_.at(row).at(col)->GetText() != "" ? sheet_.at(row).at(col)->GetValue() : "";
             output << cell_value << "\n";
         }
-        size_t row = current_size_.rows - 1;
-        for (size_t col = 0; col < current_size_.cols - 1; col++) {
-            ICell::Value cell_value = sheet_.at(row).at(col) != nullptr ? sheet_.at(row).at(col)->GetValue() : "";
-            output << cell_value << "\t";
-        }
-        size_t col = current_size_.cols - 1;
-        ICell::Value cell_value = sheet_.at(row).at(col) != nullptr ? sheet_.at(row).at(col)->GetValue() : "";
-        output << cell_value << "\n";
 	}
 
 	virtual void PrintTexts(ostream &output) const override {
-        for (size_t row = 0; row < current_size_.rows - 1; row++) {
+        for (size_t row = 0; row < current_size_.rows; row++) {
             for (size_t col = 0; col < current_size_.cols - 1; col++) {
-                std::string cell_value = sheet_.at(row).at(col) != nullptr ? sheet_.at(row).at(col)->GetText() : "";
+                std::string cell_value = sheet_.at(row).at(col)->GetText();
                 output << cell_value << "\t";
             }
             size_t col = current_size_.cols - 1;
-            std::string cell_value = sheet_.at(row).at(col) != nullptr ? sheet_.at(row).at(col)->GetText() : "";
+            std::string cell_value = sheet_.at(row).at(col)->GetText();
             output << cell_value << "\n";
         }
-        size_t row = current_size_.rows - 1;
-        for (size_t col = 0; col < current_size_.cols - 1; col++) {
-            std::string cell_value = sheet_.at(row).at(col) != nullptr ? sheet_.at(row).at(col)->GetText() : "";
-            output << cell_value << "\t";
-        }
-        size_t col = current_size_.cols - 1;
-        std::string cell_value = sheet_.at(row).at(col) != nullptr ? sheet_.at(row).at(col)->GetText() : "";
-        output << cell_value << "\n";
 	}
 
 private:
@@ -422,7 +413,7 @@ private:
         Size result{};
         for (size_t row = 0; row < Position::kMaxRows; row++) {
             for (size_t col = 0; col < Position::kMaxCols; col++) {
-                if (sheet_.at(row).at(col) != nullptr && std::holds_alternative<std::string>(sheet_.at(row).at(col)->GetValue()) && std::get<std::string>(sheet_.at(row).at(col)->GetValue()) != "") {
+                if (sheet_.at(row).at(col) != nullptr &&  sheet_.at(row).at(col)->GetText() != "") {
                     result.rows = row + 1;
                     result.cols = result.cols < col + 1 ? col + 1 : result.cols;
                 }

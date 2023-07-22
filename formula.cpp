@@ -144,9 +144,6 @@ class MyListener : public FormulaListener {
         case parsedTokenType::cell: {
             Position pos = Position::FromString(current_root_token->data);
             const ICell*cell = sheet_.GetCell(pos);
-            if (cell == nullptr) {
-                return { 0.0, next(current_root_token) };
-            }
             auto cell_value = cell->GetValue();
             if (holds_alternative<string>(cell_value))
                 return {FormulaError(FormulaError::Category::Value), next(current_root_token)};
