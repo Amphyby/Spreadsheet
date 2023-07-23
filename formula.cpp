@@ -590,6 +590,7 @@ class Formula: public IFormula {
     Formula() = delete;
     Formula(string expression) : expression_(expression) {
         references_computed = false;
+        GetReferencedCells();
     }
     virtual Value Evaluate(const ISheet& sheet) const override {
         if (expression_.find("#REF!") != string::npos)
