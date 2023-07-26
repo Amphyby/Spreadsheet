@@ -287,6 +287,8 @@ public:
         }
 		for (size_t col_number = 0; col_number < Position::kMaxCols; col_number++) {
 			for (size_t row_number = Position::kMaxCols - 1 - count; row_number >= before; row_number--) {
+		// TODO: in both Insert and both Delete methods, should traverse and move only scope of current_size_
+		// no point of moving all the rest of the empty cells
                 sheet_.at(row_number + count).at(col_number) = move(sheet_.at(row_number).at(col_number));
                 Position old_pos = Position{static_cast<int>(row_number), static_cast<int>(col_number)};
                 Position new_pos = Position{static_cast<int>(row_number + count), static_cast<int>(col_number)};
