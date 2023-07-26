@@ -489,6 +489,9 @@ class CountingListener : public FormulaListener {
         set<string> result;
         for (const auto& element : stack_of_tokens_) {
             if (element.type == parsedTokenType::cell) {
+                if (!Position::FromString(element.data).IsValid()) {
+                    throw FormulaException("");
+                }
                 result.insert(element.data);
             }
         }
@@ -555,7 +558,7 @@ string ReformatFormula(istream& in) {
         ReformattingListener listener;
         antlr4::tree::ParseTreeWalker::DEFAULT.walk(&listener, tree);
         return listener.GetResult();
-    } catch (std::exception& any) {
+    } catch (...) {
         throw FormulaException("");
     }
 }

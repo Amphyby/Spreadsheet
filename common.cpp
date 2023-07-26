@@ -7,6 +7,7 @@
 #include <cmath>
 #include <charconv>
 #include <algorithm>
+#include <deque>
 #include <utility>
 #include <FormulaListener.h>
 #include <FormulaLexer.h>
@@ -15,21 +16,21 @@ using namespace std;
 
 template<class... Args>
 struct variant_cast_proxy {
-	std::variant<Args...> v;
+    variant<Args...> v;
 
 	template<class... ToArgs>
-	operator std::variant<ToArgs...>() const {
-		return std::visit([](auto &&arg) -> std::variant<ToArgs...> { return arg; },
+    operator variant<ToArgs...>() const {
+        return visit([](auto &&arg) -> variant<ToArgs...> { return arg; },
 						  v);
 	}
 };
 
 template<class... Args>
-auto variant_cast(const std::variant<Args...> &v) -> variant_cast_proxy<Args...> {
+auto variant_cast(const variant<Args...> &v) -> variant_cast_proxy<Args...> {
 	return {v};
 }
 
-Position Position::FromString(std::string_view str) {
+Position Position::FromString(string_view str) {
 	// TODO: corner cases like A01/A0A1/etc -invalid
 	Position result;
 	Position invalid_result{-1, -1};
@@ -97,7 +98,11 @@ bool Position::operator==(const Position &rhs) const {
 }
 
 bool Position::operator<(const Position &rhs) const {
-	return (col < rhs.col && row < rhs.row);
+    if (row == rhs.row) {
+        return col < rhs.col;
+    } else {
+        return row < rhs.row;
+    }
 }
 
 bool Position::IsValid() const {
@@ -121,7 +126,7 @@ bool FormulaError::operator==(FormulaError rhs) const {
 	return category_ == rhs.category_;
 }
 
-std::string_view FormulaError::ToString() const {
+string_view FormulaError::ToString() const {
 	switch (category_) {
 		case FormulaError::Category::Ref :
 			return "#REF!";
@@ -141,7 +146,7 @@ class Cell : public ICell {
 public:
 	virtual ~Cell() = default;
 
-    Cell(const ISheet &sheet) : sheet_(sheet), formula_(nullptr), value_(0.0) {
+    Cell(const ISheet &sheet) : sheet_(sheet), formula_(nullptr), value_(0.0), value_computed_(false) {
 	}
 
 	void setNewValue(string text) {
@@ -150,8 +155,8 @@ public:
 		if (!text.empty() && text.at(0) == '\'') {
 			value_ = text.substr(1);
 		} else if (!text.empty() && text.at(0) == '=') {
-			formula_ = ParseFormula(text.substr(1));
-			value_ = variant_cast(formula_->Evaluate(sheet_));
+            formula_ = ParseFormula(text.substr(1));
+            value_computed_ = false;
 		} else if (text_.empty()) {
 			value_ = 0.0;
 		} else if (text.find_first_not_of("0123456789") == string::npos) {
@@ -164,8 +169,9 @@ public:
 	}
 
 	virtual Value GetValue() const override {
-		if (formula_ != nullptr) {
+        if (formula_ != nullptr && !value_computed_) {
 			value_ = variant_cast(formula_->Evaluate(sheet_));
+            value_computed_ = true;
 		}
 		return value_;
 	}
@@ -187,18 +193,19 @@ public:
 	}
 
 private:
+    mutable bool value_computed_;
 	string text_;
 	mutable Value value_;
-	std::unique_ptr<IFormula> formula_;
+    unique_ptr<IFormula> formula_;
 	const ISheet &sheet_;
 
 	friend class Sheet;
 };
 
 template<typename T, typename... Ts>
-std::ostream& operator<<(std::ostream& os, const std::variant<T, Ts...>& v)
+ostream& operator<<(ostream& os, const variant<T, Ts...>& v)
 {
-    std::visit([&os](auto&& arg) {
+    visit([&os](auto&& arg) {
         os << arg;
     }, v);
     return os;
@@ -216,18 +223,29 @@ public:
             for (auto& el: row) {
                 el = make_unique<Cell>(*this);
             }
-		}
+        }
 	}
 
 	virtual void SetCell(Position pos, string text) override {
         checkPosition(pos);
-		sheet_.at(pos.row).at(pos.col)->setNewValue(text);
-		if (sheet_.at(pos.row).at(pos.col)->formula_ != nullptr) {
-			auto referenced_cells = sheet_.at(pos.row).at(pos.col)->GetReferencedCells();
-			for (const Position &cell: referenced_cells) {
-				dependency_graph_[cell].insert(pos);
-			}
-		}
+        unique_ptr<Cell> temp = make_unique<Cell>(*this);
+        temp->setNewValue(text);
+        if (temp->formula_ != nullptr) {
+            const auto refcells = temp->GetReferencedCells();
+            if (has_circular_dependencies(pos, refcells)) {
+                throw CircularDependencyException("");
+            }
+            if (dependency_graph_.count(pos) > 0) {
+                reset_value_recursively(pos);
+            }
+            for (const Position& cell : sheet_.at(pos.row).at(pos.col)->GetReferencedCells()) {
+                dependency_graph_[cell].erase(pos);
+            }
+            for (const Position &cell: refcells) {
+                dependency_graph_[cell].insert(pos);
+            }
+        }
+        sheet_.at(pos.row).at(pos.col) = move(temp);
 		current_size_.cols = current_size_.cols < pos.col + 1 ? pos.col + 1 : current_size_.cols;
 		current_size_.rows = current_size_.rows < pos.row + 1 ? pos.row + 1 : current_size_.rows;
 	}
@@ -244,10 +262,12 @@ public:
 
 	virtual void ClearCell(Position pos) override {
 		checkPosition(pos);
-		sheet_.at(pos.row).at(pos.col) = nullptr;
+        sheet_.at(pos.row).at(pos.col) = make_unique<Cell>(*this);
         if (pos.row + 1 == current_size_.rows || pos.col + 1 == current_size_.cols) {
             recalculate_size();
         }
+        reset_value_recursively(pos);
+        dependency_graph_.erase(pos);
 	}
 
     virtual void InsertRows(int before, int count = 1) override {
@@ -267,9 +287,20 @@ public:
         }
 		for (size_t col_number = 0; col_number < Position::kMaxCols; col_number++) {
 			for (size_t row_number = Position::kMaxCols - 1 - count; row_number >= before; row_number--) {
-				sheet_.at(row_number + 1).at(col_number) = move(sheet_.at(row_number).at(col_number));
+                sheet_.at(row_number + count).at(col_number) = move(sheet_.at(row_number).at(col_number));
+                Position old_pos = Position{static_cast<int>(row_number), static_cast<int>(col_number)};
+                Position new_pos = Position{static_cast<int>(row_number + count), static_cast<int>(col_number)};
+                if (dependency_graph_.count(old_pos) > 0) {
+                    auto node_handle = dependency_graph_.extract(old_pos);
+                    dependency_graph_[new_pos] = move(node_handle.mapped());
+                }
 			}
 		}
+        for (size_t row_number = before; row_number < before + count; row_number++) {
+            for (size_t col_number = 0; col_number < Position::kMaxCols; col_number++) {
+                sheet_.at(row_number).at(col_number) = make_unique<Cell>(*this);
+            }
+        }
 	}
 
     virtual void InsertCols(int before, int count = 1) override {
@@ -289,18 +320,33 @@ public:
         }
 		for (size_t row_number = 0; row_number < Position::kMaxRows; row_number++) {
 			for (size_t col_number = Position::kMaxCols - 1 - count; col_number >= before; col_number--) {
-				sheet_.at(row_number).at(col_number + 1) = move(sheet_.at(row_number).at(col_number));
+                sheet_.at(row_number).at(col_number + count) = move(sheet_.at(row_number).at(col_number));
+                Position old_pos = Position{static_cast<int>(row_number), static_cast<int>(col_number)};
+                Position new_pos = Position{static_cast<int>(row_number), static_cast<int>(col_number + count)};
+                if (dependency_graph_.count(old_pos) > 0) {
+                    auto node_handle = dependency_graph_.extract(old_pos);
+                    dependency_graph_[new_pos] = move(node_handle.mapped());
+                }
 			}
 		}
+        for (size_t row_number = 0; row_number < Position::kMaxRows; row_number++) {
+            for (size_t col_number = before; col_number < before + count; col_number++) {
+                sheet_.at(row_number).at(col_number) = make_unique<Cell>(*this);
+            }
+        }
 	}
 
     virtual void DeleteRows(int first, int count = 1) override {
         if (count < 1) {
             return;
         }
-		for (auto &row: sheet_) {
-			for (auto &cell: row) {
-				handleRowsDeletion(cell, first, count);
+        for (size_t row = 0; row < current_size_.rows; row++) {
+            for (size_t col = 0; col < current_size_.cols; col++) {
+                Position curr_pos = Position{static_cast<int>(row), static_cast<int>(col)};
+                unique_ptr<Cell> &cell = sheet_.at(row).at(col);
+                if (IFormula::HandlingResult::ReferencesChanged == handleRowsDeletion(cell, first, count)) {
+                    reset_value_recursively(curr_pos);
+                }
 			}
 		}
         if (first < current_size_.rows) {
@@ -313,21 +359,34 @@ public:
         for (size_t row_number = first; row_number < Position::kMaxRows - 1 - count; row_number++) {
             for (size_t col_number = 0; col_number < Position::kMaxCols; col_number++) {
 				sheet_.at(row_number).at(col_number) = move(sheet_.at(row_number+count).at(col_number));
+                Position old_pos = Position{static_cast<int>(row_number+count), static_cast<int>(col_number)};
+                Position new_pos = Position{static_cast<int>(row_number), static_cast<int>(col_number)};
+                if (dependency_graph_.count(old_pos) > 0) {
+                    auto node_handle = dependency_graph_.extract(old_pos);
+                    dependency_graph_[new_pos] = move(node_handle.mapped());
+                }
 			}
 		}
-        //have to recreate last count rows with empty cells
-        //same for DeleteCols
+        for (size_t row_number = Position::kMaxRows - count; row_number < Position::kMaxRows; row_number++) {
+            for (size_t col_number = 0; col_number < Position::kMaxCols; col_number++) {
+                sheet_.at(row_number).at(col_number) = make_unique<Cell>(*this);
+            }
+        }
 	}
 
     virtual void DeleteCols(int first, int count = 1) override {
         if (count < 1) {
             return;
         }
-		for (auto &row: sheet_) {
-			for (auto &cell: row) {
-				handleColsDeletion(cell, first, count);
-			}
-		}
+        for (size_t row = 0; row < current_size_.rows; row++) {
+            for (size_t col = 0; col < current_size_.cols; col++) {
+                Position curr_pos = Position{static_cast<int>(row), static_cast<int>(col)};
+                unique_ptr<Cell> &cell = sheet_.at(row).at(col);
+                if (IFormula::HandlingResult::ReferencesChanged == handleColsDeletion(cell, first, count)) {
+                    reset_value_recursively(curr_pos);
+                }
+            }
+        }
         if (first < current_size_.cols) {
             if (first + count < current_size_.cols) {
                 current_size_.cols -= count;
@@ -338,8 +397,19 @@ public:
         for (size_t col_idx = first; col_idx < Position::kMaxCols - 1 - count; col_idx++) {//GetPrintableSize().cols; col_idx++) {
             for (size_t row_idx = 0; row_idx < Position::kMaxRows; row_idx++) {//GetPrintableSize().rows; col_idx++) {
 				sheet_.at(row_idx).at(col_idx) = move(sheet_.at(row_idx).at(col_idx + count));
+                Position old_pos = Position{static_cast<int>(row_idx), static_cast<int>(col_idx + count)};
+                Position new_pos = Position{static_cast<int>(row_idx), static_cast<int>(col_idx)};
+                if (dependency_graph_.count(old_pos) > 0) {
+                    auto node_handle = dependency_graph_.extract(old_pos);
+                    dependency_graph_[new_pos] = move(node_handle.mapped());
+                }
 			}
 		}
+        for (size_t row_number = 0; row_number < Position::kMaxRows; row_number++) {
+            for (size_t col_number = Position::kMaxCols - count; col_number < Position::kMaxCols; col_number++) {
+                sheet_.at(row_number).at(col_number) = make_unique<Cell>(*this);
+            }
+        }
 	}
 
 	virtual Size GetPrintableSize() const override {
@@ -361,18 +431,18 @@ public:
 	virtual void PrintTexts(ostream &output) const override {
         for (size_t row = 0; row < current_size_.rows; row++) {
             for (size_t col = 0; col < current_size_.cols - 1; col++) {
-                std::string cell_value = sheet_.at(row).at(col)->GetText();
+                string cell_value = sheet_.at(row).at(col)->GetText();
                 output << cell_value << "\t";
             }
             size_t col = current_size_.cols - 1;
-            std::string cell_value = sheet_.at(row).at(col)->GetText();
+            string cell_value = sheet_.at(row).at(col)->GetText();
             output << cell_value << "\n";
         }
 	}
 
 private:
 	IFormula::HandlingResult handleColsInsertion(unique_ptr<Cell> &cell, int before, int count) {
-		if (cell != nullptr && cell->formula_ != nullptr) {
+        if (cell->formula_ != nullptr) {
 			return cell->formula_->HandleInsertedCols(before, count);
 		} else {
 			return IFormula::HandlingResult::NothingChanged;
@@ -380,7 +450,7 @@ private:
 	}
 
 	IFormula::HandlingResult handleRowsInsertion(unique_ptr<Cell> &cell, int before, int count) {
-		if (cell != nullptr && cell->formula_ != nullptr) {
+        if (cell->formula_ != nullptr) {
 			return cell->formula_->HandleInsertedRows(before, count);
 		} else {
 			return IFormula::HandlingResult::NothingChanged;
@@ -388,7 +458,7 @@ private:
 	}
 
 	IFormula::HandlingResult handleColsDeletion(unique_ptr<Cell> &cell, int first, int count) {
-		if (cell != nullptr && cell->formula_ != nullptr) {
+        if (cell->formula_ != nullptr) {
 			return cell->formula_->HandleDeletedCols(first, count);
 		} else {
 			return IFormula::HandlingResult::NothingChanged;
@@ -396,7 +466,7 @@ private:
 	}
 
 	IFormula::HandlingResult handleRowsDeletion(unique_ptr<Cell> &cell, int first, int count) {
-		if (cell != nullptr && cell->formula_ != nullptr) {
+        if (cell->formula_ != nullptr) {
 			return cell->formula_->HandleDeletedRows(first, count);
 		} else {
 			return IFormula::HandlingResult::NothingChanged;
@@ -413,7 +483,7 @@ private:
         Size result{};
         for (size_t row = 0; row < Position::kMaxRows; row++) {
             for (size_t col = 0; col < Position::kMaxCols; col++) {
-                if (sheet_.at(row).at(col) != nullptr &&  sheet_.at(row).at(col)->GetText() != "") {
+                if (sheet_.at(row).at(col)->GetText() != "") {
                     result.rows = row + 1;
                     result.cols = result.cols < col + 1 ? col + 1 : result.cols;
                 }
@@ -422,10 +492,51 @@ private:
         current_size_ = move(result);
     };
 
+    void reset_value_recursively(Position pos) {
+        deque<Position> to_process{pos};
+        set<Position> deep_references;
+        while (!to_process.empty()) {
+            Position curr_pos = to_process.back();
+            to_process.pop_back();
+            for (const auto i : dependency_graph_[curr_pos]) {
+                auto res = deep_references.insert(i);
+                if (res.second) {
+                    to_process.push_front(i);
+                }
+            }
+        }
+        sheet_.at(pos.row).at(pos.col)->value_computed_ = false;
+    }
+
+    bool has_circular_dependencies(Position original, vector<Position> references) {
+        set<Position> references_set(references.begin(), references.end());
+        bool result = false;
+        deque<Position> to_process{original};
+        set<Position> deep_references;
+        while (!to_process.empty()) {
+            Position curr_pos = to_process.back();
+            to_process.pop_back();
+            for (const auto& i : dependency_graph_[curr_pos]) {
+                if (references_set.count(i) > 0) {
+                    result = true;
+                    break;
+                }
+                auto res = deep_references.insert(i);
+                if (res.second) {
+                    to_process.push_front(i);
+                }
+            }
+            if (result) {
+                break;
+            }
+        }
+        return result;
+    }
+
     vector<vector<unique_ptr<Cell>>> sheet_;
-	std::map<Position, std::set<Position>> dependency_graph_; // Cell->set of Cells depending on Cell
+    map<Position, set<Position>> dependency_graph_; // Cell->set of Cells depending on Cell
 	Size current_size_;
-	TableTooBigException ex;
+    TableTooBigException ex;
 };
 
 unique_ptr<ISheet> CreateSheet() {

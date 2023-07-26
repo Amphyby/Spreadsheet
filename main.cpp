@@ -418,7 +418,7 @@ void TestFormulaInvalidPosition() {
 }
 
 void TestCellErrorPropagation() {
-    auto sheet = CreateSheet();
+   auto sheet = CreateSheet();
     sheet->SetCell("A1"_pos, "=1");
     sheet->SetCell("A2"_pos, "=A1");
     sheet->SetCell("A3"_pos, "=A2");
@@ -601,6 +601,6 @@ int main() {
     RUN_TEST(tr, TestPrint);
     RUN_TEST(tr, TestCellReferences);
     RUN_TEST(tr, TestFormulaIncorrect);
-    /*RUN_TEST(tr, TestCellCircularReferences);*/
+    RUN_TEST(tr, TestCellCircularReferences);
     return 0;
 }
